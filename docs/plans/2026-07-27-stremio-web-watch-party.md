@@ -291,6 +291,24 @@ Rules:
 - Never trust client timestamps as server time.
 - Return structured error codes rather than free-form protocol errors.
 
+The initial `session.hello` must also advertise player capabilities rather than assuming every Stremio target behaves identically:
+
+```json
+{
+  "protocolVersion": 1,
+  "clientVersion": "...",
+  "capabilities": {
+    "scheduledActions": true,
+    "observeBuffering": true,
+    "setPlaybackRate": true,
+    "navigateNext": true,
+    "playerImplementation": "HTMLVideo"
+  }
+}
+```
+
+The server includes negotiated room requirements in `session.welcome`. A client that lacks a required capability may join only as unsupported/observer; it must not claim to be synchronized. This is particularly important for shell, cast, YouTube and future TV player implementations.
+
 ### 8.2 Core client messages
 
 - `session.hello` — protocol/client version and optional resume token.
@@ -489,6 +507,7 @@ Playback rate is part of canonical room state. Guest-local rate changes are disa
 - Do not expose `profile.auth.key` or add-on configuration URLs.
 - Allowlist production web origins during WebSocket upgrade.
 - Enforce TLS/WSS, message-size limits, room-size limits and per-IP/session rate limits.
+- Start with explicit conservative limits and tune from metrics: 32 KiB maximum message size, 20 participants per room, status updates at 2/s sustained with burst 5, host commands at 2/s sustained with burst 10, and clock pings at 1/s. Rate-limited messages must never mutate canonical state.
 - Escape display names/chat; never render user strings as HTML.
 - Redact stream URLs, invite secrets and tokens from logs, Sentry and analytics.
 - Keep rooms ephemeral with a bounded lifetime and idle TTL.
@@ -564,6 +583,8 @@ README.md
 
 Use one process and an in-memory `Map` for MVP. Add Redis only when multiple service instances or restart persistence are actually required. If Redis is introduced, use it for room state plus pub/sub and keep command updates atomic by revision.
 
+This is a deliberate MVP decision rather than an unexamined omission. Rooms are ephemeral, and silently restoring a stale room after a media/service restart can be worse than ending it. If restart survival becomes a requirement, add SQLite as the first persistence adapter: persist the latest room snapshot plus a bounded authoritative-event ring, then prove that reconstruction preserves sequence/idempotency invariants. Do not add SQLite merely because hosting capacity is available.
+
 ### 15.2 Production topology
 
 ```text
@@ -591,6 +612,20 @@ Deployment requirements:
 Modify `webpack.config.js` to inject a `WATCH_PARTY_WS_URL` default. In production, prefer deriving `wss://<current-origin>/watch-party/ws` when no explicit URL is configured.
 
 The existing PWA service worker uses content-hashed assets and `skipWaiting`, but protocol compatibility must still be maintained during deployment.
+
+### 15.4 Hosted-fork compatibility checks
+
+The current `http_server.js` is only an Express static server. It does not set CSP, HSTS, compression or reverse-proxy behavior. Production security headers and WebSocket proxying belong at Caddy/Nginx initially.
+
+Before making the hosted fork the user-facing deployment, verify all of the following from the final HTTPS origin:
+
+- Stremio username/password and social-login flows. Apple and Facebook login helpers currently interact with hard-coded `https://www.strem.io` endpoints, so origin/CORS behavior must be tested rather than assumed.
+- Add-on catalog and stream requests across the set of real add-on origins.
+- Playback through the default local Stremio streaming server at `http://127.0.0.1:11470/`. HTTPS-to-loopback mixed-content handling differs by browser and must be checked in Chrome, Firefox and Safari.
+- The core Web Worker at `/<COMMIT_HASH>/scripts/worker.js`, WASM loading, Chromecast's external script and Apple login's external script.
+- PWA installation, service-worker registration and upgrade from one protocol-compatible build to the next.
+
+If introducing CSP, deploy `Content-Security-Policy-Report-Only` first. The eventual policy must account for the core worker/WASM, Stremio APIs, arbitrary user-installed add-on origins, localhost/remote streaming servers, media/blob/data sources, Chromecast, Apple login and the watch-party WSS endpoint. A narrow static allowlist is unlikely to work without empirical violation data.
 
 ## 16. Client change map
 
@@ -638,6 +673,8 @@ Expected existing modifications:
 - `package.json` — test tooling only if needed; prefer native WebSocket and no large runtime dependency.
 
 Do not put room state into `stremio-core` or Stremio profile settings for MVP.
+
+New JSX copy must go through translations: `tests/i18nScan.test.js` rejects hard-coded interface strings. If `stremio://watch-party/...` links are added later, also update `src/App/DeepLinkHandler.js`/the shell deep-link handling; the initial HTTPS hash invitation does not require that change.
 
 ## 17. Test strategy
 
@@ -720,6 +757,7 @@ Scenarios:
 - Desktop shell/mpv if the fork can be loaded there.
 - Chromecast only after MVP.
 - PWA install/update behavior.
+- Hosted-origin authentication, add-on CORS, and HTTPS-to-`127.0.0.1:11470` streaming-server behavior.
 
 ## 18. Implementation phases and tasks
 
