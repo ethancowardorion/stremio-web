@@ -79,7 +79,7 @@ Stremio uses a `HashRouter` in `src/index.js:44-56`. Routes are declared in `src
 
 A dedicated invitation route such as `/watch-party/:roomId` is appropriate. It can join the room, perform source negotiation, and navigate to the locally constructed player route.
 
-### 2.4 Media identity is available, but source handoff is the main product risk
+### 2.4 Media identity and exact-source handoff
 
 `src/core/types/models/Player.d.ts` exposes:
 
@@ -90,9 +90,9 @@ A dedicated invitation route such as `/watch-party/:roomId` is appropriate. It c
 
 `src/core/types/Stream.d.ts` includes direct URLs, YouTube IDs, torrent `infoHash` and `fileIdx`.
 
-The current player URL contains an encoded stream and can also contain add-on transport URLs. Sharing the complete player URL blindly is unsafe because a configured add-on URL may embed user-specific credentials. The implementation must never send `profile.auth.key`, and it must not assume that every transport URL is safe to disclose.
+The current player URL contains an encoded stream plus optional stream/meta add-on transport URLs. For this personal, self-hosted deployment, it is acceptable to send that complete source context—and, where useful, Stremio auth keys—to the watch-party service. Exact-source handoff is therefore the default, not an opt-in fallback.
 
-Source negotiation therefore needs its own spike and must be treated independently from playback synchronization.
+The remaining spike is compatibility rather than disclosure: distinguish Stremio's raw stream/add-on descriptor from player-runtime URLs rewritten through a local streaming server. A host's final `127.0.0.1` URL, an expired signed URL, or an IP-bound debrid URL may still fail on the guest even when copied exactly. The guest should reconstruct playback from the full raw player route/source context first, using its own local Stremio service where applicable.
 
 ### 2.5 Existing build and test baseline
 
@@ -168,7 +168,8 @@ Assume a maintained fork initially. Historical Stremio responses described the f
 - Event-driven play/pause/seek plus periodic authoritative snapshots.
 - Reconnect and resume within a grace period.
 - Hard-seek drift correction.
-- Safe torrent source handoff (`infoHash` + `fileIdx`) and manual source selection fallback.
+- Exact source handoff using the host's encoded stream and stream/meta add-on transport URLs, with the guest's local streaming service used where applicable.
+- Multiple devices logged into the same Stremio account, represented as distinct watch-party participants.
 - Ephemeral rooms, in memory, on one server process.
 - Docker deployment behind TLS.
 
@@ -187,7 +188,7 @@ Assume a maintained fork initially. Historical Stremio responses described the f
 - Relaying, proxying or redistributing video.
 - Voice/video chat.
 - Permanent room history.
-- Stremio account authentication or sending Stremio auth keys to the room service.
+- Treating a Stremio account identity as a unique room participant or as the room's sole authorization mechanism.
 - Android-native, iOS-native and TV-native Stremio clients.
 - Arbitrary external players.
 - Multi-region/high-availability deployment.
@@ -199,7 +200,7 @@ Assume a maintained fork initially. Historical Stremio responses described the f
 
 1. Host starts a stream normally.
 2. Host opens the watch-party control in the player.
-3. Client pauses playback and captures media identity, safe source identity and current position.
+3. Client pauses playback and captures the complete exact source bundle, media identity and current position.
 4. Client creates a room and receives an opaque invitation URL plus optional human-readable code.
 5. Host sees participant readiness and can copy the invitation.
 6. Host cannot start synchronized playback until its own player is loaded and ready. Whether to require all guests to be ready is a room policy.
@@ -255,7 +256,7 @@ Media delivery
 └── remains Stremio/add-on/streaming-server responsibility per client
 ```
 
-The room service must never receive Stremio account keys and must not proxy video bytes.
+The room service may receive Stremio account keys and full source/add-on context for exact handoff in this personal deployment. It must not proxy video bytes.
 
 ## 8. Protocol design
 
@@ -369,7 +370,7 @@ Store:
 - room policy;
 - recently applied command IDs for idempotency.
 
-Do not persist raw direct-stream or configured add-on URLs in logs. In-memory room data expires automatically.
+Room state may contain raw direct-stream URLs, configured add-on URLs and optional Stremio auth material. In-memory room data expires automatically. These fields may reach the service by design, but normal logs, metrics, Sentry breadcrumbs and analytics should still avoid copying them unnecessarily.
 
 ## 9. Synchronization algorithm
 
@@ -440,9 +441,9 @@ Later optional policy:
 - “Pause for buffering participants” with debounce (for example, buffering continuously for >1.5 seconds), a maximum pause timeout, and host override.
 - Server records the participant responsible for the pause.
 
-## 11. Media/source identity and safe handoff
+## 11. Media/source identity and exact handoff
 
-This is the largest unresolved implementation risk and must be spiked before production work.
+The service is personal and self-hosted. Exact source consistency takes priority over keeping source credentials out of the room service. The host sends the complete raw Stremio source context needed to reproduce its player route.
 
 ### 11.1 Media identity
 
@@ -454,27 +455,42 @@ Use:
 - expected duration when known;
 - `mediaRevision`.
 
-### 11.2 Source fingerprint
+### 11.2 Exact source bundle
 
-Preferred fingerprints:
+Store and deliver an ephemeral source bundle containing:
 
-1. Torrent: lowercase `infoHash` + numeric `fileIdx`.
-2. YouTube: `ytId`.
-3. Direct URL: a client-generated fingerprint over a carefully normalized URL, without sending the URL merely to compare it.
-4. Unknown source: explicit `unknown`, requiring manual confirmation.
+- the encoded `stream` route parameter and decoded stream object;
+- `streamTransportUrl` and `metaTransportUrl` exactly as used by the host;
+- metadata `type`, ID and video/episode ID;
+- the host player path/deep link as a reproduction/debug fallback;
+- source kind and canonical fingerprint (`infoHash:fileIdx`, `ytId`, or hash of the direct URL/stream object);
+- expected duration when loaded;
+- optional host Stremio auth material when explicitly needed for the chosen source flow.
 
-A matching movie/episode does not guarantee the same timeline. Different cuts, intros and frame rates can diverge. Compare duration and warn or refuse auto-follow when duration differs beyond a tolerance such as two seconds or 0.5%, whichever is larger.
+The service may hold and relay this bundle to authenticated room participants. It must not fetch arbitrary media URLs server-side merely to validate them.
 
-### 11.3 Handoff modes
+### 11.3 Guest load sequence
 
-Implement in this order:
+1. Guest joins with a unique watch-party participant/device session, regardless of Stremio account identity.
+2. Guest receives the exact source bundle.
+3. Guest reconstructs/navigates to the host's Stremio player route using the encoded raw stream and transport URLs.
+4. Torrent/raw streams are passed through the guest device's own local Stremio streaming server rather than reusing a host-resolved localhost URL.
+5. Guest reports loaded stream fingerprint and duration.
+6. If fingerprint/duration match, guest becomes ready and hard-aligns to canonical playback.
+7. If an exact direct/debrid URL is expired, IP-bound or otherwise rejected, show a clear source-load error and allow the host to refresh/rebroadcast the current source bundle. Manual/local re-resolution is a fallback, not the default.
 
-1. **Safe torrent handoff:** send only `infoHash`/`fileIdx` plus media metadata. Each client uses its own Stremio streaming service.
-2. **Manual local source selection:** guest opens the correct title/episode and chooses a source; synchronization activates after media identity and duration checks.
-3. **Local automatic re-resolution:** query streams through the guest's installed add-ons and match a safe fingerprint.
-4. **Exact direct-stream sharing, opt-in:** only after threat review; never send configured add-on transport URLs or Stremio auth keys. Warn that signed/debrid URLs may be bearer credentials.
+Different cuts can still have different timelines even when metadata IDs match. Compare the loaded duration and warn or refuse synchronization when it differs by more than two seconds or 0.5%, whichever is larger.
 
-Do not serialize and share the host's full `/player/...` path by default. It may contain encoded add-on configuration or user-specific URLs.
+### 11.4 Same Stremio account on multiple devices
+
+This is a supported primary scenario.
+
+- `participantId` and resume/session tokens identify a watch-party device connection.
+- `profile.auth.user._id` is optional account metadata and is **not unique within a room**.
+- Never deduplicate, reject or merge participants because their Stremio user IDs or auth keys match.
+- Each device remains logged into Stremio normally and keeps its own local profile/core session. Do not replace the guest's local `profile.auth` object with the host's merely because source material was shared.
+- Both devices may report library progress to the same Stremio account. Because their timelines should be synchronized, normal last-write-wins updates should be close; verify this explicitly and do not suppress guest progress reporting unless testing proves duplicate updates cause a real regression.
+- UI labels need a per-device distinction even when account name/avatar are identical, for example `Host · Laptop` and `Guest · TV`.
 
 ## 12. Browser, player and platform constraints
 
@@ -503,13 +519,13 @@ Playback rate is part of canonical room state. Guest-local rate changes are disa
 - Invitation URL is a bearer credential. Use at least 128 bits of random secret in the URL.
 - If a short human code is provided, keep it separate from the room ID, use enough entropy, rate-limit guesses and expire it.
 - Generate separate participant resume tokens and host capability tokens.
-- Do not use a Stremio auth key as room authentication.
-- Do not expose `profile.auth.key` or add-on configuration URLs.
+- Room invitations and host capability tokens remain the watch-party authorization layer; Stremio auth keys may also reach the service but are not sufficient by themselves to join/control a room.
+- Stremio auth keys, full source objects and configured add-on URLs are permitted in encrypted room-service messages and ephemeral room state for this deployment.
 - Allowlist production web origins during WebSocket upgrade.
 - Enforce TLS/WSS, message-size limits, room-size limits and per-IP/session rate limits.
-- Start with explicit conservative limits and tune from metrics: 32 KiB maximum message size, 20 participants per room, status updates at 2/s sustained with burst 5, host commands at 2/s sustained with burst 10, and clock pings at 1/s. Rate-limited messages must never mutate canonical state.
+- Start with explicit conservative limits and tune from metrics: 256 KiB maximum message size to accommodate complete encoded source bundles, 20 participants per room, status updates at 2/s sustained with burst 5, host commands at 2/s sustained with burst 10, and clock pings at 1/s. Rate-limited messages must never mutate canonical state.
 - Escape display names/chat; never render user strings as HTML.
-- Redact stream URLs, invite secrets and tokens from logs, Sentry and analytics.
+- Keep auth keys, stream/add-on URLs and invite secrets out of routine logs, Sentry and analytics. The service is allowed to process them; observability systems do not need permanent copies.
 - Keep rooms ephemeral with a bounded lifetime and idle TTL.
 - Close connections on repeated invalid messages.
 - Return generic errors for room lookup failures to reduce code enumeration.
@@ -782,9 +798,9 @@ The following tasks are intentionally ordered so that the highest-risk assumptio
 4. Record timing, event ordering and echo behavior.
 5. Mark `VALIDATED`, `PARTIAL` or `INVALIDATED` and delete/disregard spike code before production implementation.
 
-#### Task 2: Validate source handoff and secret boundaries
+#### Task 2: Validate exact source handoff
 
-**Objective:** Determine the safest workable handoff for torrent, public direct and configured/debrid streams.
+**Objective:** Prove the full host player/source bundle can reproduce the exact source on a second device logged into the same Stremio account.
 
 **Files:**
 
@@ -792,13 +808,14 @@ The following tasks are intentionally ordered so that the highest-risk assumptio
 
 **Steps:**
 
-1. Capture decoded stream and route structures for representative sources.
-2. Identify credentials or user-specific configuration in every field.
-3. Prove a second profile/browser can load `infoHash/fileIdx` without host transport URLs.
-4. Test manual and automatic local source matching.
-5. Define the exact allowlist/denylist and document unsupported source types.
+1. Capture encoded/decoded stream, stream transport, meta transport and auth context for torrent, public direct and configured/debrid sources.
+2. Send the complete source bundle through a local test room service and reconstruct the player route on a second device/profile.
+3. Test with both devices logged into the same Stremio account and prove they remain separate room participants.
+4. Confirm local streaming-server rewriting occurs on the guest device rather than copying a host `127.0.0.1` runtime URL.
+5. Measure behavior for signed, expiring and IP-bound direct/debrid URLs; define refresh and fallback behavior.
+6. Verify both devices' Stremio library progress remains coherent while synchronized.
 
-Stop implementation if safe handoff cannot support the intended real-world source set.
+Stop implementation if exact handoff cannot support the intended real-world source set without a documented refresh/fallback path.
 
 #### Task 3: Validate browser activation and scheduled playback
 
@@ -993,18 +1010,18 @@ Stop implementation if safe handoff cannot support the intended real-world sourc
 
 **Commit:** `feat: add in-player watch party controls`
 
-#### Task 19: Implement safe source negotiation
+#### Task 19: Implement exact source-bundle handoff
 
-**Objective:** Support the source modes validated in Phase 0, starting with torrent handoff and manual fallback.
+**Objective:** Capture, store and replay the host's complete raw Stremio source context on the guest while preserving device-local player/core sessions.
 
 **Files:**
 
 - Create: `src/services/WatchParty/mediaIdentity.js`.
 - Modify provider, join route and player adapter.
 
-**TDD:** No serialized output contains auth keys/configured transport URLs; mismatch/duration tests fail closed.
+**TDD:** Round-trip encoded stream/transport/auth fields exactly; same-account devices remain distinct participants; localhost runtime URLs are not reused as host-local endpoints; mismatched duration and expired source failures are explicit.
 
-**Commit:** `feat: negotiate safe watch party media sources`
+**Commit:** `feat: hand off exact watch party source bundles`
 
 #### Task 20: Synchronize media/episode transitions
 
@@ -1073,9 +1090,10 @@ Synchronization:
 - Under stable network conditions, at least 95% of sampled playback is within the chosen post-spike drift target.
 - No repeated seek/rate oscillation occurs.
 
-Safety:
+Access and credential handling:
 
-- Stremio auth keys and configured add-on transport URLs are absent from protocol captures and logs.
+- Auth keys and configured add-on transport URLs can pass through encrypted room protocol messages and ephemeral room state, but are absent from routine logs, metrics, Sentry and analytics.
+- Two devices using the same `profile.auth.user._id` join and remain as distinct participants.
 - Guests cannot issue authoritative commands by crafting raw WebSocket messages.
 - Expired/invalid invitations fail safely.
 - Browser autoplay failure is visible and recoverable.
@@ -1090,13 +1108,13 @@ Quality:
 
 ## 20. Decisions still requiring spike evidence
 
-1. Exact safe source-handoff behavior for real debrid/configured add-on streams.
+1. Exact source-bundle behavior for expiring or IP-bound debrid/configured add-on streams, including refresh behavior.
 2. Whether a single Ready interaction reliably unlocks later scheduled playback in target browsers.
 3. Final hard-seek and soft-rate thresholds per player implementation.
 4. Whether MVP should support the desktop shell in addition to browser/PWA.
 5. Whether guest buffering should ever auto-pause the room.
 6. Whether short room codes are worth the attack surface compared with opaque invite links only.
-7. Whether direct stream URLs can be shared at all, or must always be locally re-resolved.
+7. Which player-runtime fields must be regenerated on the guest even though the raw source/add-on/auth context is shared exactly.
 
 These are not excuses to leave behavior vague. Phase 0 must resolve them with recorded evidence before production implementation.
 
@@ -1110,7 +1128,7 @@ After approval, do only the following first:
 4. Integrate a hidden developer-only room control into Stremio Web.
 5. Run two-browser tests using a deterministic local video.
 
-Do not begin chat, reactions, Redis, mobile polish or broad source support until this slice demonstrates reliable synchronization and safe media handoff.
+Do not begin chat, reactions, Redis or mobile polish until this slice demonstrates reliable synchronization and exact source-bundle handoff.
 
 ## 22. Sources
 
