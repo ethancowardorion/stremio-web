@@ -27,6 +27,7 @@
         "node": ">=22",
         "pnpm": ">=11"
     },
+    "packageManager": "pnpm@11.8.0",
     "dependencies": {
         "@babel/runtime": "7.29.2",
         "@sentry/browser": "8.42.0",
