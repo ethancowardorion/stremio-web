@@ -205,9 +205,17 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
 
                         <div className={styles['section']}>
                             {
-                                !watchParty.activated || watchParty.activationRequired ?
+                                watchParty.activationRequired ?
                                     <Button className={styles['action-button']} onClick={watchParty.markReady}>
                                         <div className={styles['action-label']}>{t('WATCH_PARTY_ACTIVATE')}</div>
+                                    </Button>
+                                    :
+                                    null
+                            }
+                            {
+                                watchParty.isHost ?
+                                    <Button className={styles['action-button']} onClick={watchParty.resetRoom}>
+                                        <div className={styles['action-label']}>{t('WATCH_PARTY_RESET')}</div>
                                     </Button>
                                     :
                                     null

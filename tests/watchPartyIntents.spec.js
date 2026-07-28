@@ -117,7 +117,7 @@ describe('watch party readiness', () => {
     it('names each reason a client is not synchronized', () => {
         expect(readiness({ inRoom: false }).reasons).toContain('not-in-room');
         expect(readiness({ supported: false }).reasons).toContain('unsupported-player');
-        expect(readiness({ activated: false }).reasons).toContain('activation-required');
+        expect(readiness({ activated: false }).reasons).not.toContain('activation-required');
         expect(readiness({ activationRequired: true }).reasons).toContain('activation-required');
         expect(readiness({ loaded: false }).reasons).toContain('not-loaded');
         expect(readiness({ sourceCompatible: false }).reasons).toContain('source-incompatible');
@@ -132,6 +132,10 @@ describe('watch party readiness', () => {
 
     it('never reports ready while the browser still needs an activation gesture', () => {
         expect(readiness({ activationRequired: true }).ready).toBe(false);
+    });
+
+    it('reports ready before playback activation when the paused player is loaded and aligned', () => {
+        expect(readiness({ activated: false })).toEqual({ ready: true, reasons: [] });
     });
 
     it('never gates readiness on the buffering flag', () => {

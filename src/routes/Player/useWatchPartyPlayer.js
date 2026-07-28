@@ -230,7 +230,9 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             if (decision.paused === false) {
                 // Track when playback was asked for so a silent rejection can be
                 // detected and surfaced instead of looking like drift.
-                playRequestedAtRef.current = Date.now();
+                if (playRequestedAtRef.current === null) {
+                    playRequestedAtRef.current = Date.now();
+                }
             } else {
                 playRequestedAtRef.current = null;
             }
@@ -278,8 +280,11 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         if (!inRoom || video.state.loaded !== true) {
             return;
         }
+        pendingSeekRef.current = null;
+        playRequestedAtRef.current = null;
+        setActivationRequired(false);
         applyCanonicalState({ forceAlign: true });
-    }, [inRoom, video.state.loaded, video.state.stream, watchParty.mediaRevision]);
+    }, [inRoom, video.state.loaded, video.state.stream, watchParty.mediaRevision, watchParty.resetRevision]);
 
     // ------------------------------------------------------------- activation
 
@@ -309,8 +314,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         return () => clearInterval(timer);
     }, [inRoom, watchParty.playback]);
 
-    // The click that satisfies the browser's media-activation requirement is the
-    // same click that arms the room's ready barrier (plan section 6.2).
+    // Fallback for browsers that reject the first synchronized play attempt.
     const markReady = React.useCallback(() => {
         setActivated(true);
         setActivationRequired(false);
@@ -358,7 +362,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     // re-announce readiness after a reconnect even when nothing changed locally.
     React.useEffect(() => {
         lastReadinessRef.current = null;
-    }, [watchParty.status, watchParty.mediaRevision]);
+    }, [watchParty.status, watchParty.mediaRevision, watchParty.resetRevision]);
 
     React.useEffect(() => {
         if (!inRoom) {
@@ -390,7 +394,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         publish();
         const interval = setInterval(publish, READINESS_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [inRoom, ready, sustainedBuffering, localFingerprint, watchParty.mediaRevision]);
+    }, [inRoom, ready, sustainedBuffering, localFingerprint, watchParty.mediaRevision, watchParty.resetRevision]);
 
     // --------------------------------------------------------- observations
 
@@ -563,6 +567,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         refreshSource,
         leave: watchParty.actions.leave,
         closeRoom: watchParty.actions.closeRoom,
+        resetRoom: watchParty.actions.resetRoom,
         updatePolicy: watchParty.actions.updatePolicy,
         retryConnection: watchParty.actions.retryConnection,
     };

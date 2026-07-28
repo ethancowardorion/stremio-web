@@ -179,6 +179,7 @@ export const CLIENT_MESSAGE_TYPES = [
     'room.join',
     'room.leave',
     'room.close',
+    'room.reset',
     'room.policy.update',
     'participant.ready',
     'playback.command',

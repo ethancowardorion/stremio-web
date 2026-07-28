@@ -436,6 +436,31 @@ export class Room {
     }
 
     /**
+     * Returns the room to the same paused, unready state used for a clean join,
+     * while preserving the current media, source, participants and position.
+     */
+    reset(participantId: string, nowMs: number): void {
+        if (participantId !== this.hostParticipantId) {
+            throw new ProtocolError('NOT_HOST', 'only the host can reset the room');
+        }
+        this.playback = freezePlayback(this.playback, nowMs, this.durationMs);
+        this.lastServerInitiatedRevision = this.playback.revision;
+        this.hasStartedCurrentMedia = false;
+        this.pauseReason = null;
+        this.commandHistory.clear();
+        this.resetHostProgressTracking();
+        for (const participant of this.participants.values()) {
+            participant.ready = false;
+            participant.loaded = false;
+            participant.buffering = false;
+            participant.durationMs = null;
+            participant.mediaRevision = this.mediaRevision;
+            participant.sourceFingerprint = null;
+        }
+        this.touch(nowMs);
+    }
+
+    /**
      * Freezes a running room when a supported participant reports sustained
      * buffering. Short blips are filtered by the client before they reach here.
      *

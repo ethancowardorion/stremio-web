@@ -22,6 +22,9 @@ const initialState = {
     media: null,
     source: null,
     mediaRevision: 0,
+    // Incremented when the host asks every player to rebuild its local sync
+    // state from a clean room snapshot.
+    resetRevision: 0,
     playback: null,
     participants: [],
     selfParticipantId: null,
@@ -71,11 +74,14 @@ const applySnapshot = (state, payload) => {
         media: room.media,
         source: room.source,
         mediaRevision: room.mediaRevision,
+        resetRevision: payload.reset === true ? state.resetRevision + 1 : state.resetRevision,
         playback: room.playback,
         participants: Array.isArray(room.participants) ? room.participants : [],
         selfParticipantId: typeof payload.selfParticipantId === 'string' ? payload.selfParticipantId : state.selfParticipantId,
         serverTimeMs: room.serverTimeMs,
         closeReason: null,
+        pauseReason: null,
+        lastError: null,
     };
 };
 

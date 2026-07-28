@@ -100,7 +100,10 @@ const computeReadiness = (input) => {
     if (!input.supported) {
         reasons.push('unsupported-player');
     }
-    if (!input.activated || input.activationRequired) {
+    // Loading/alignment can be established without playing, so a paused guest
+    // can announce readiness automatically. A gesture is required only after
+    // the browser has actually rejected a play request.
+    if (input.activationRequired) {
         reasons.push('activation-required');
     }
     if (!input.loaded) {

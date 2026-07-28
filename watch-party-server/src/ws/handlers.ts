@@ -40,6 +40,7 @@ const RATE_BUCKETS: Record<ClientMessageType, RateBucketName> = {
     'room.join': 'command',
     'room.leave': 'command',
     'room.close': 'command',
+    'room.reset': 'command',
     'room.policy.update': 'command',
     'participant.ready': 'status',
     'playback.command': 'command',
@@ -183,6 +184,9 @@ export class WatchPartyService {
                 return;
             case 'room.close':
                 this.handleRoomClose(session);
+                return;
+            case 'room.reset':
+                this.handleRoomReset(session, nowMs);
                 return;
             case 'room.policy.update':
                 this.handleRoomPolicyUpdate(
@@ -454,6 +458,32 @@ export class WatchPartyService {
             throw new ProtocolError('NOT_HOST', 'only the host can end the room');
         }
         this.closeRoom(room, 'host_ended');
+    }
+
+    private handleRoomReset(session: SessionRecord, nowMs: number): void {
+        const { room, participantId } = this.requireRoomMembership(session);
+        room.reset(participantId, nowMs);
+        // A snapshot deliberately replaces all derived client state. It also
+        // carries each recipient's own id, unlike an ordinary broadcast.
+        for (const record of this.sessions.listForRoom(room.roomId)) {
+            if (
+                !record.connected ||
+                record.participantId === null ||
+                room.getParticipant(record.participantId) === undefined
+            ) {
+                continue;
+            }
+            this.connectionsBySessionId.get(record.sessionId)?.send(
+                'room.snapshot',
+                {
+                    room: room.toSnapshot(this.now()),
+                    selfParticipantId: record.participantId,
+                    reset: true,
+                },
+                { roomId: room.roomId },
+            );
+        }
+        this.logger.info('room_reset', { roomId: room.roomId, participantId });
     }
 
     private handleRoomPolicyUpdate(

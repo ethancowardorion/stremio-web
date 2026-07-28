@@ -60,6 +60,7 @@ const WATCH_PARTY_TRANSLATIONS = {
         WATCH_PARTY_DURATION_MISMATCH: 'This copy has a different length than the host\'s, so playback cannot be synchronized.',
         WATCH_PARTY_SOURCE_FAILED: 'The shared source could not be loaded on this device.',
         WATCH_PARTY_REFRESH_SOURCE: 'Reshare current source',
+        WATCH_PARTY_RESET: 'Reset synchronized playback',
 
         WATCH_PARTY_UNSUPPORTED_PLAYER: 'This player cannot be synchronized, so you can only watch along.',
         WATCH_PARTY_CASTING_BLOCKED: 'Stop casting before starting or joining a watch party.',

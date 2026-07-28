@@ -271,6 +271,14 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         }
     }, []);
 
+    const resetRoom = React.useCallback(() => {
+        const client = clientRef.current;
+        if (client === null || !client.isConnected || stateRef.current.room === null) {
+            return null;
+        }
+        return client.send(CLIENT_MESSAGE.ROOM_RESET, {});
+    }, []);
+
     const updatePolicy = React.useCallback((policy) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected || stateRef.current.room === null) {
@@ -411,6 +419,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         media: state.media,
         source: state.source,
         mediaRevision: state.mediaRevision,
+        resetRevision: state.resetRevision,
         playback: state.playback,
         participants: state.participants,
         selfParticipantId: state.selfParticipantId,
@@ -435,6 +444,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
             joinRoom,
             leave,
             closeRoom,
+            resetRoom,
             updatePolicy,
             setReady,
             observe,
@@ -462,6 +472,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         joinRoom,
         leave,
         closeRoom,
+        resetRoom,
         updatePolicy,
         setReady,
         observe,

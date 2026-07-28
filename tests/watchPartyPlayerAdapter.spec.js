@@ -96,6 +96,7 @@ const createWatchPartyValue = (overrides = {}) => {
         media: null,
         source: null,
         mediaRevision: 0,
+        resetRevision: 0,
         playback: null,
         participants: [],
         self: null,
@@ -116,6 +117,7 @@ const createWatchPartyValue = (overrides = {}) => {
             createRoom: () => Promise.resolve({}),
             leave: () => undefined,
             closeRoom: () => undefined,
+            resetRoom: () => undefined,
             retryConnection: () => undefined,
         },
         ...overrides,
@@ -467,6 +469,22 @@ describe('watch party player adapter: applying canonical state', () => {
         expect(video.calls).toEqual([]);
         unmount();
     });
+
+    it('force-aligns again when the host resets the room', () => {
+        const { value, readiness } = followerValue({ paused: true, positionMs: 60_000 });
+        const video = createFakeVideo({ paused: true, time: 60_000 });
+        const adapter = renderAdapter({ watchPartyValue: value, video });
+        const readinessBeforeReset = readiness.length;
+        video.calls.length = 0;
+        video.state.time = 5_000;
+        value.resetRevision += 1;
+
+        adapter.rerender();
+
+        expect(video.calls).toContainEqual(['setTime', 60_000]);
+        expect(readiness.length).toBeGreaterThan(readinessBeforeReset);
+        adapter.unmount();
+    });
 });
 
 describe('watch party player adapter: readiness', () => {
@@ -483,15 +501,37 @@ describe('watch party player adapter: readiness', () => {
             ...extra,
         });
 
-    it('is not ready before the activation gesture, and reports why', () => {
+    it('automatically announces readiness once the guest player is loaded and aligned', () => {
         const { value, readiness } = followerValue();
         const video = createFakeVideo({ paused: true, time: 60_000 });
         const { result, unmount } = renderAdapter({ watchPartyValue: value, video });
 
-        expect(result.current.ready).toBe(false);
-        expect(result.current.readinessReasons).toContain('activation-required');
-        expect(readiness[0]).toMatchObject({ ready: false, loaded: true, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0' });
+        expect(result.current.ready).toBe(true);
+        expect(result.current.readinessReasons).not.toContain('activation-required');
+        expect(readiness[0]).toMatchObject({ ready: true, loaded: true, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0' });
         unmount();
+    });
+
+    it('asks for a click only when the browser rejects synchronized playback', () => {
+        jest.useFakeTimers();
+        try {
+            const { value } = followerValue({
+                playback: createPlayback({ paused: false, effectiveAtServerMs: T0, positionMs: 60_000 }),
+            });
+            const video = createFakeVideo({ paused: true, time: 60_000 });
+            // Model autoplay rejection: the setter is accepted by the adapter
+            // but the observed player remains paused.
+            video.setPaused = (next) => video.calls.push(['setPaused', next]);
+            const adapter = renderAdapter({ watchPartyValue: value, video });
+
+            expect(adapter.result.current.activationRequired).toBe(false);
+            act(() => jest.advanceTimersByTime(1500));
+            expect(adapter.result.current.activationRequired).toBe(true);
+            expect(adapter.result.current.readinessReasons).toContain('activation-required');
+            adapter.unmount();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     it('becomes ready once the participant activates playback', () => {

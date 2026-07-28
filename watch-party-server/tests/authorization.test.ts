@@ -204,6 +204,53 @@ test('authority: a guest cannot change room policy', async (t) => {
     );
 });
 
+test('room.reset: only the host can return every client to a clean paused snapshot', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    const guestError = await guest.request('room.reset', {});
+    assert.equal(guestError.payload.code, 'NOT_HOST');
+
+    host.send('playback.command', {
+        commandId: 'play-before-reset',
+        action: 'play',
+        expectedRevision: 1,
+        mediaRevision: 1,
+        leadMs: 0,
+    });
+    await host.waitFor(
+        (envelope) => envelope.type === 'playback.state' &&
+            (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+    await guest.waitFor(
+        (envelope) => envelope.type === 'playback.state' &&
+            (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+    harness.clock.advance(5_000);
+
+    host.send('room.reset', {});
+    const hostReset = await host.waitFor(
+        (envelope) => envelope.type === 'room.snapshot' && envelope.payload.reset === true,
+    );
+    const guestReset = await guest.waitFor(
+        (envelope) => envelope.type === 'room.snapshot' && envelope.payload.reset === true,
+    );
+
+    const room = hostReset.payload.room as {
+        mediaRevision: number;
+        playback: { paused: boolean; positionMs: number };
+        participants: Array<{ ready: boolean; loaded: boolean; buffering: boolean }>;
+    };
+    assert.equal(room.mediaRevision, 1);
+    assert.equal(room.playback.paused, true);
+    assert.equal(room.playback.positionMs, 5_000);
+    assert.equal(room.participants.every((participant) =>
+        !participant.ready && !participant.loaded && !participant.buffering), true);
+    assert.equal(hostReset.payload.selfParticipantId, host.participantId);
+    assert.equal(guestReset.payload.selfParticipantId, guest.participantId);
+    assert.deepEqual(guestReset.payload.room, hostReset.payload.room);
+});
+
 test('authority: a guest cannot change media or refresh the source', async (t) => {
     const { harness, host, guest } = await setUpStartedRoom();
     t.after(() => harness.stop());

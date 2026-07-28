@@ -144,6 +144,20 @@ describe('watch party reducer: room state', () => {
         expect(selectIsFollower(state)).toBe(false);
     });
 
+    it('marks a host reset snapshot as a fresh local synchronization cycle', () => {
+        const before = { ...joined(), pauseReason: 'host_stalled' };
+        const reset = reduce(before, message(SERVER_MESSAGE.ROOM_SNAPSHOT, {
+            ...snapshotPayload(),
+            reset: true,
+        }));
+        expect(reset.resetRevision).toBe(before.resetRevision + 1);
+        expect(reset.pauseReason).toBeNull();
+        expect(reset.selfParticipantId).toBe('p-host');
+
+        const ordinarySnapshot = reduce(reset, message(SERVER_MESSAGE.ROOM_SNAPSHOT, snapshotPayload()));
+        expect(ordinarySnapshot.resetRevision).toBe(reset.resetRevision);
+    });
+
     it('keeps the invitation secret only from room.created', () => {
         const created = reduce(initialState, message(SERVER_MESSAGE.ROOM_CREATED, {
             ...snapshotPayload(),
