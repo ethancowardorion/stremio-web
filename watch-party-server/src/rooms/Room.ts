@@ -30,6 +30,20 @@ import { isSupportedClient, normalizeRoomPolicy } from './RoomPolicy.ts';
  * after a restart is worse than ending it.
  */
 
+/** Shortest window over which progress is meaningful rather than jitter. */
+const MIN_STALL_SAMPLE_MS = 1000;
+
+/** Below this fraction of expected progress, the host counts as stalled. */
+const STALL_PROGRESS_RATIO = 0.25;
+
+export type PauseReason = 'host_stalled';
+
+export type HostObservationResult = {
+    changed: boolean;
+    /** Set when the service paused the room rather than merely rebasing it. */
+    reason: PauseReason | null;
+};
+
 export type Participant = {
     participantId: string;
     displayName: string;
@@ -93,6 +107,11 @@ export class Room {
     hostDisconnectedAtServerMs: number | null = null;
     /** Whether the current media revision has ever started playing. */
     hasStartedCurrentMedia: boolean = false;
+    /**
+     * Set when the service, not the host, paused the room. Surfaced to clients
+     * so the interface can explain why playback stopped.
+     */
+    pauseReason: PauseReason | null = null;
 
     private readonly participants = new Map<string, Participant>();
     private readonly commandHistory: CommandHistory;
@@ -102,6 +121,10 @@ export class Room {
      * Host commands older than this are refused so the host resynchronizes.
      */
     private lastServerInitiatedRevision = 0;
+    /** Previous host observation, used to measure whether it is making progress. */
+    private lastHostObservation: { positionMs: number; atServerMs: number } | null = null;
+    /** When the host first stopped making progress, or null while it is keeping up. */
+    private hostStalledSinceServerMs: number | null = null;
 
     private constructor(input: CreateRoomInput, options: RoomOptions) {
         this.options = options;
@@ -376,6 +399,10 @@ export class Room {
         if (result.outcome === 'applied') {
             this.playback = result.state;
             this.commandHistory.add(command.commandId);
+            // Any deliberate timeline change invalidates progress measured
+            // against the previous position.
+            this.resetHostProgressTracking();
+            this.pauseReason = null;
             if (command.action === 'play') {
                 this.hasStartedCurrentMedia = true;
             }
@@ -408,6 +435,8 @@ export class Room {
         this.appliedMediaChangeIds.add(input.mediaChangeId);
         this.mediaRevision += 1;
         this.hasStartedCurrentMedia = false;
+        this.resetHostProgressTracking();
+        this.pauseReason = null;
         this.media = input.media;
         this.source = input.source;
         this.commandHistory.clear();
@@ -446,24 +475,62 @@ export class Room {
         observation: { positionMs: number; paused: boolean; rate: number; mediaRevision: number },
         nowMs: number,
         toleranceMs: number,
-    ): boolean {
+        stallGraceMs: number = 0,
+    ): HostObservationResult {
+        const unchanged: HostObservationResult = { changed: false, reason: null };
         if (participantId !== this.hostParticipantId) {
-            return false;
+            return unchanged;
         }
         if (observation.mediaRevision !== this.mediaRevision) {
-            return false;
+            return unchanged;
         }
         if (nowMs < this.playback.effectiveAtServerMs) {
-            return false;
+            return unchanged;
         }
         if (observation.paused !== this.playback.paused || observation.rate !== this.playback.rate) {
-            return false;
+            return unchanged;
         }
+
+        if (this.playback.paused) {
+            // Nothing to measure progress against while stopped.
+            this.resetHostProgressTracking();
+            this.touch(nowMs);
+            return unchanged;
+        }
+
+        const stalled = this.trackHostProgress(observation.positionMs, nowMs);
+
+        if (
+            stalled &&
+            this.policy.pauseOnHostStall &&
+            this.hostStalledSinceServerMs !== null &&
+            nowMs - this.hostStalledSinceServerMs >= stallGraceMs
+        ) {
+            // Pause where the host actually is, not where the room had reached.
+            // That is the position it has data for, so resuming does not ask it
+            // to buffer all over again, and it is a single deliberate move
+            // rather than the repeated backwards nudges that caused a sawtooth.
+            this.playback = {
+                revision: this.playback.revision + 1,
+                mediaRevision: this.playback.mediaRevision,
+                paused: true,
+                positionMs: clampPositionMs(observation.positionMs, this.durationMs),
+                rate: this.playback.rate,
+                updatedAtServerMs: nowMs,
+                effectiveAtServerMs: nowMs,
+            };
+            this.lastServerInitiatedRevision = this.playback.revision;
+            this.pauseReason = 'host_stalled';
+            this.resetHostProgressTracking();
+            this.touch(nowMs);
+            return { changed: true, reason: 'host_stalled' };
+        }
+
         const canonicalPositionMs = positionAtServerMs(this.playback, nowMs, this.durationMs);
         const deltaMs = observation.positionMs - canonicalPositionMs;
         if (Math.abs(deltaMs) <= toleranceMs) {
             this.touch(nowMs);
-            return false;
+            return unchanged;
         }
         if (deltaMs < 0) {
             // The host is *behind* the room. That means its own playback stalled
@@ -478,16 +545,10 @@ export class Room {
             // everyone still looks synchronized while nobody is watching
             // anything.
             //
-            // Backwards motion is what an explicit seek command is for. A
-            // stalled host catches up through its own drift correction once it
-            // can play again.
-            //
-            // Deliberately not keyed on the reported buffering flag: browsers
-            // report a healthy playing element as buffering for some sources,
-            // so it cannot distinguish a stall from normal playback. A position
-            // that fails to advance can.
+            // Backwards motion is what an explicit seek command, or the stall
+            // pause above, is for.
             this.touch(nowMs);
-            return false;
+            return unchanged;
         }
         this.playback = {
             revision: this.playback.revision + 1,
@@ -499,7 +560,45 @@ export class Room {
             effectiveAtServerMs: nowMs,
         };
         this.touch(nowMs);
+        return { changed: true, reason: null };
+    }
+
+    /**
+     * Records how far the host advanced since the previous observation and
+     * returns whether it is failing to keep up.
+     *
+     * Deliberately measured from position rather than the reported buffering
+     * flag: browsers report a healthy playing element as buffering for some
+     * sources, so that flag cannot distinguish a stall from normal playback. A
+     * position that does not advance can.
+     */
+    private trackHostProgress(positionMs: number, nowMs: number): boolean {
+        const previous = this.lastHostObservation;
+        this.lastHostObservation = { positionMs, atServerMs: nowMs };
+        if (previous === null) {
+            return false;
+        }
+        const elapsedMs = nowMs - previous.atServerMs;
+        if (elapsedMs < MIN_STALL_SAMPLE_MS) {
+            // Too short a window to tell playback apart from jitter.
+            return this.hostStalledSinceServerMs !== null;
+        }
+        const advancedMs = positionMs - previous.positionMs;
+        const expectedMs = elapsedMs * this.playback.rate;
+        if (advancedMs >= expectedMs * STALL_PROGRESS_RATIO) {
+            this.hostStalledSinceServerMs = null;
+            return false;
+        }
+        if (this.hostStalledSinceServerMs === null) {
+            // Date the stall from the start of the window in which it happened.
+            this.hostStalledSinceServerMs = previous.atServerMs;
+        }
         return true;
+    }
+
+    private resetHostProgressTracking(): void {
+        this.lastHostObservation = null;
+        this.hostStalledSinceServerMs = null;
     }
 
     /** Replaces the source bundle without changing media identity or readiness. */

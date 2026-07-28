@@ -530,6 +530,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         invitationUrl: watchParty.invitationUrl,
         lastError: watchParty.lastError,
         closeReason: watchParty.closeReason,
+        pauseReason: watchParty.pauseReason,
         clock: watchParty.clock,
         handleTimelineIntent,
         markReady,

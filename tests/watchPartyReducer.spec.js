@@ -227,6 +227,20 @@ describe('watch party reducer: revision ordering', () => {
         expect(next.serverTimeMs).toBe(2000);
     });
 
+    it('remembers why the service paused the room, and forgets it on the next change', () => {
+        const stalled = reduce(joined(), message(SERVER_MESSAGE.PLAYBACK_STATE, {
+            playback: playback({ revision: 2, paused: true, positionMs: 2150 }),
+            reason: 'host_stalled',
+        }));
+        expect(stalled.pauseReason).toBe('host_stalled');
+
+        // Resuming carries no reason, so the explanation must not linger.
+        const resumed = reduce(stalled, message(SERVER_MESSAGE.PLAYBACK_STATE, {
+            playback: playback({ revision: 3, paused: false, positionMs: 2150 }),
+        }));
+        expect(resumed.pauseReason).toBeNull();
+    });
+
     it('ignores an equal or older revision, so a replay cannot rewind playback', () => {
         const advanced = reduce(joined(), message(SERVER_MESSAGE.PLAYBACK_STATE, {
             playback: playback({ revision: 5, positionMs: 60_000 }),

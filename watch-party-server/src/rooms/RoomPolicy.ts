@@ -12,6 +12,7 @@ import { REQUIRED_CAPABILITIES, type PlayerCapabilities, type RoomPolicy } from 
 export const DEFAULT_ROOM_POLICY: RoomPolicy = {
     requireAllReadyToStart: true,
     pauseOnGuestBuffering: false,
+    pauseOnHostStall: true,
 };
 
 export const normalizeRoomPolicy = (policy: Partial<RoomPolicy> | undefined): RoomPolicy => ({
@@ -19,6 +20,7 @@ export const normalizeRoomPolicy = (policy: Partial<RoomPolicy> | undefined): Ro
     // Not configurable in MVP: accepting `true` here would promise behaviour the
     // service does not implement yet.
     pauseOnGuestBuffering: DEFAULT_ROOM_POLICY.pauseOnGuestBuffering,
+    pauseOnHostStall: policy?.pauseOnHostStall ?? DEFAULT_ROOM_POLICY.pauseOnHostStall,
 });
 
 /**

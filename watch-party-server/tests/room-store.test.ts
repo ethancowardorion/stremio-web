@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProtocolError } from '../src/protocol/errors.ts';
-import type { MediaDescriptor, PlayerCapabilities, SourceBundle } from '../src/protocol/types.ts';
+import type { MediaDescriptor, PlayerCapabilities, RoomPolicy, SourceBundle } from '../src/protocol/types.ts';
 import { Room, type CreateRoomInput, type RoomOptions } from '../src/rooms/Room.ts';
 import { RoomStore } from '../src/rooms/RoomStore.ts';
 import { secretsMatch } from '../src/rooms/ids.ts';
@@ -211,8 +211,8 @@ test('authority: a guest cannot mutate playback', () => {
     );
 });
 
-const makeReadyRoom = (): Room => {
-    const room = Room.create(roomInput(), roomOptions());
+const makeReadyRoom = (policy?: Partial<RoomPolicy>): Room => {
+    const room = Room.create(roomInput(policy === undefined ? {} : { policy }), roomOptions());
     room.updateReadiness(room.hostParticipantId, {
         ready: true,
         loaded: true,
@@ -295,13 +295,13 @@ test('observation: a host observation past the tolerance rebases canonical posit
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
     const revisionBefore = room.playback.revision;
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 12_000, paused: false, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
-    assert.equal(changed, true);
+    assert.equal(result.changed, true);
     assert.equal(room.playback.positionMs, 12_000);
     assert.equal(room.playback.revision, revisionBefore + 1);
 });
@@ -310,13 +310,13 @@ test('observation: a host observation within tolerance changes nothing', () => {
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
     const revisionBefore = room.playback.revision;
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 10_100, paused: false, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
-    assert.equal(changed, false);
+    assert.equal(result.changed, false);
     assert.equal(room.playback.revision, revisionBefore);
 });
 
@@ -331,14 +331,14 @@ test('observation: a stalled host never drags the room backwards', () => {
     const revisionBefore = room.playback.revision;
 
     // Ten seconds of wall time pass; the host has managed only one.
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 1_000, paused: false, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
 
-    assert.equal(changed, false);
+    assert.equal(result.changed, false);
     assert.equal(room.playback.revision, revisionBefore);
     // The room keeps running, so the stalled host is measurably behind and can
     // report itself unready rather than claiming to be synchronized.
@@ -349,19 +349,19 @@ test('observation: the room still follows a host that runs ahead', () => {
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
 
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 12_000, paused: false, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
 
-    assert.equal(changed, true);
+    assert.equal(result.changed, true);
     assert.equal(room.playback.positionMs, 12_000);
 });
 
-test('observation: repeated stalled reports leave canonical monotonic', () => {
-    const room = makeReadyRoom();
+test('observation: with the stall pause off, canonical never moves backwards', () => {
+    const room = makeReadyRoom({ pauseOnHostStall: false });
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
 
     let previous = room.canonicalPositionMs(T0);
@@ -372,6 +372,7 @@ test('observation: repeated stalled reports leave canonical monotonic', () => {
             { positionMs: 1_500, paused: false, rate: 1, mediaRevision: 1 },
             nowMs,
             250,
+            3_000,
         );
         const current = room.canonicalPositionMs(nowMs);
         assert.ok(current >= previous, `canonical went backwards: ${previous} -> ${current}`);
@@ -379,43 +380,148 @@ test('observation: repeated stalled reports leave canonical monotonic', () => {
     }
 });
 
+test('stall pause: a host that stops making progress pauses the room', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+
+    // First sample only establishes a baseline; nothing is known yet.
+    const baseline = room.applyHostObservation(
+        room.hostParticipantId,
+        { positionMs: 2_000, paused: false, rate: 1, mediaRevision: 1 },
+        T0 + 2_000,
+        250,
+        3_000,
+    );
+    assert.equal(baseline.reason, null);
+
+    // Then the host stops advancing for longer than the grace period.
+    room.applyHostObservation(
+        room.hostParticipantId,
+        { positionMs: 2_100, paused: false, rate: 1, mediaRevision: 1 },
+        T0 + 4_000,
+        250,
+        3_000,
+    );
+    const paused = room.applyHostObservation(
+        room.hostParticipantId,
+        { positionMs: 2_150, paused: false, rate: 1, mediaRevision: 1 },
+        T0 + 6_000,
+        250,
+        3_000,
+    );
+
+    assert.equal(paused.changed, true);
+    assert.equal(paused.reason, 'host_stalled');
+    assert.equal(room.playback.paused, true);
+    assert.equal(room.pauseReason, 'host_stalled');
+    // Paused where the host actually is, which is the position it has data for.
+    assert.equal(room.playback.positionMs, 2_150);
+});
+
+test('stall pause: the room settles rather than pausing repeatedly', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+
+    let pauses = 0;
+    for (let tick = 1; tick <= 8; tick += 1) {
+        const result = room.applyHostObservation(
+            room.hostParticipantId,
+            { positionMs: 1_500, paused: false, rate: 1, mediaRevision: 1 },
+            T0 + tick * 2_000,
+            250,
+            3_000,
+        );
+        if (result.reason === 'host_stalled') {
+            pauses += 1;
+        }
+    }
+    assert.equal(pauses, 1, 'the room should pause once, not on every observation');
+    assert.equal(room.playback.paused, true);
+});
+
+test('stall pause: a host keeping up is never paused', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+
+    for (let tick = 1; tick <= 8; tick += 1) {
+        const nowMs = T0 + tick * 2_000;
+        const result = room.applyHostObservation(
+            room.hostParticipantId,
+            { positionMs: tick * 2_000, paused: false, rate: 1, mediaRevision: 1 },
+            nowMs,
+            250,
+            3_000,
+        );
+        assert.equal(result.reason, null);
+    }
+    assert.equal(room.playback.paused, false);
+});
+
+test('stall pause: resuming clears the reason and the measured stall', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+    for (let tick = 1; tick <= 4; tick += 1) {
+        room.applyHostObservation(
+            room.hostParticipantId,
+            { positionMs: 1_500, paused: false, rate: 1, mediaRevision: 1 },
+            T0 + tick * 2_000,
+            250,
+            3_000,
+        );
+    }
+    assert.equal(room.playback.paused, true);
+
+    room.updateReadiness(room.hostParticipantId, {
+        ready: true, loaded: true, buffering: false, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 9_000);
+    const resumed = room.applyHostCommand(
+        room.hostParticipantId,
+        { commandId: 'c2', action: 'play', expectedRevision: room.playback.revision, mediaRevision: 1, leadMs: 0 },
+        T0 + 10_000,
+    );
+
+    assert.equal(resumed.outcome, 'applied');
+    assert.equal(room.playback.paused, false);
+    assert.equal(room.pauseReason, null);
+});
+
 test('observation: a disagreeing paused flag is ignored rather than adopted', () => {
     // A transient host rebuffer must not flip the whole room's play state.
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 999_000, paused: true, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
-    assert.equal(changed, false);
+    assert.equal(result.changed, false);
     assert.equal(room.playback.paused, false);
 });
 
 test('observation: a pending scheduled start is never cancelled by an observation', () => {
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 750 }, T0);
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         room.hostParticipantId,
         { positionMs: 500_000, paused: false, rate: 1, mediaRevision: 1 },
         T0 + 100,
         250,
     );
-    assert.equal(changed, false);
+    assert.equal(result.changed, false);
     assert.equal(room.playback.effectiveAtServerMs, T0 + 750);
 });
 
 test('observation: a guest observation is never authoritative', () => {
     const room = makeReadyRoom();
     const guest = room.join({ inviteSecret: room.inviteSecret, displayName: 'Guest', deviceLabel: null, capabilities: capabilities(), nowMs: T0 });
-    const changed = room.applyHostObservation(
+    const result = room.applyHostObservation(
         guest.participantId,
         { positionMs: 999_000, paused: true, rate: 1, mediaRevision: 1 },
         T0 + 10_000,
         250,
     );
-    assert.equal(changed, false);
+    assert.equal(result.changed, false);
 });
 
 // ------------------------------------------------------------- host grace/TTL

@@ -89,6 +89,7 @@ reachable from the internet. Set `WATCH_PARTY_METRICS_PORT=-1` to disable it.
 | `WATCH_PARTY_HOST_GRACE_MS` | `20000` | How long playback keeps running after the host drops |
 | `WATCH_PARTY_DEFAULT_LEAD_MS` | `750` | Scheduled lead time for transitions that start playback |
 | `WATCH_PARTY_HOST_OBSERVATION_TOLERANCE_MS` | `250` | Host observations closer than this are not rebroadcast |
+| `WATCH_PARTY_HOST_STALL_GRACE_MS` | `3000` | How long the host may fail to advance before the room pauses |
 | `WATCH_PARTY_SWEEP_INTERVAL_MS` | `15000` | Expiry and host-grace maintenance |
 | `WATCH_PARTY_HEARTBEAT_INTERVAL_MS` | `30000` | Socket liveness ping |
 | `WATCH_PARTY_COMMAND_HISTORY_SIZE` | `256` | Idempotency window for command ids |

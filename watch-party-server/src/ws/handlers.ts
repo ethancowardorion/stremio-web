@@ -507,14 +507,25 @@ export class WatchPartyService {
         participant.lastSeenServerMs = nowMs;
 
         if (participant.isHost) {
-            const changed = room.applyHostObservation(
+            const result = room.applyHostObservation(
                 participantId,
                 payload,
                 nowMs,
                 this.config.hostObservationToleranceMs,
+                this.config.hostStallGraceMs,
             );
-            if (changed) {
-                this.broadcast(room, 'playback.state', { playback: room.playback, serverTimeMs: this.now() });
+            if (result.changed) {
+                this.broadcast(room, 'playback.state', {
+                    playback: room.playback,
+                    serverTimeMs: this.now(),
+                    // Present only when the service paused the room itself, so
+                    // the interface can say why rather than leaving a pause
+                    // nobody pressed looking like a glitch.
+                    ...(result.reason === null ? {} : { reason: result.reason }),
+                });
+            }
+            if (result.reason !== null) {
+                this.logger.info('room_paused', { roomId: room.roomId, reason: result.reason });
             }
             return;
         }

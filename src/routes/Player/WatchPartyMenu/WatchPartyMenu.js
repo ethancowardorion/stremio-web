@@ -144,6 +144,14 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                                 null
                         }
                         {
+                            // A pause nobody pressed needs explaining, or it
+                            // reads as the feature being broken.
+                            watchParty.pauseReason === 'host_stalled' ?
+                                <div className={styles['notice']}>{t('WATCH_PARTY_PAUSED_HOST_STALLED')}</div>
+                                :
+                                null
+                        }
+                        {
                             watchParty.isFollower && !watchParty.ready ?
                                 <div className={styles['notice']}>{t('WATCH_PARTY_WAITING_FOR_HOST')}</div>
                                 :

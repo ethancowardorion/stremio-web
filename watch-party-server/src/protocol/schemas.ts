@@ -98,8 +98,10 @@ const observation = () =>
 
 const policy = () =>
     object({
-        requireAllReadyToStart: boolean(),
-        pauseOnGuestBuffering: boolean(),
+        // Optional so a client may send a subset; the room fills in defaults.
+        requireAllReadyToStart: optional(boolean()),
+        pauseOnGuestBuffering: optional(boolean()),
+        pauseOnHostStall: optional(boolean()),
     });
 
 export type ClientMessageSchemaOptions = {

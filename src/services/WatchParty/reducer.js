@@ -28,6 +28,8 @@ const initialState = {
     // Only ever populated on the host, and only from `room.created`.
     inviteSecret: null,
     closeReason: null,
+    // Set when the service paused the room itself rather than the host doing it.
+    pauseReason: null,
     serverTimeMs: null,
 };
 
@@ -147,6 +149,10 @@ const reduceServerMessage = (state, envelope) => {
             return {
                 ...state,
                 playback: payload.playback,
+                // Only a service-initiated pause carries a reason. Anything else
+                // clears it, so a stale explanation cannot outlive the pause it
+                // described.
+                pauseReason: typeof payload.reason === 'string' ? payload.reason : null,
                 serverTimeMs: typeof payload.serverTimeMs === 'number' ? payload.serverTimeMs : state.serverTimeMs,
             };
 

@@ -68,6 +68,16 @@ untouched.
 - Ordering comes from revisions, never from arrival time. A replayed or
   out-of-order frame cannot rewind playback, and a duplicate command id is a
   no-op.
+- Host observations may only move canonical position *forward*. A host that has
+  stalled reports a position that stopped advancing; following it backwards
+  would drag everyone else back, and since they keep playing forward the result
+  is a sawtooth that never settles.
+- If the host stops making progress for longer than the grace period
+  (`WATCH_PARTY_HOST_STALL_GRACE_MS`, 3 s), the room pauses at the host's own
+  position — the one it has data for — and says so. Turn it off per room with
+  the `pauseOnHostStall` policy. Stalling is measured from position rather than
+  the browser's buffering flag, which reports a healthy playing element as
+  buffering for some sources.
 
 ## Exact source handoff
 

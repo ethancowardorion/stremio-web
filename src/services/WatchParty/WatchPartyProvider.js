@@ -395,6 +395,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         inviteSecret: state.inviteSecret,
         invitationUrl,
         closeReason: state.closeReason,
+        pauseReason: state.pauseReason,
         lastError: state.lastError,
         clock: clockState,
         displayName,

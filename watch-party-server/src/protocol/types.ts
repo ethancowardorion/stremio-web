@@ -105,6 +105,16 @@ export type RoomPolicy = {
     requireAllReadyToStart: boolean;
     /** MVP keeps this off: one slow guest must not be able to lock the room. */
     pauseOnGuestBuffering: boolean;
+    /**
+     * Whether the room pauses when the *host* stops making progress.
+     *
+     * Distinct from guest buffering, and on by default. A host that cannot keep
+     * up is not one slow participant among many — it is the reference clock, so
+     * the alternative is everyone watching ahead of the person driving. Pausing
+     * also states the problem plainly, which is the cue to switch to a source
+     * the host can actually stream.
+     */
+    pauseOnHostStall: boolean;
 };
 
 export type ParticipantPublic = {
