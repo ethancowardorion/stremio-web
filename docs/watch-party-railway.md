@@ -73,21 +73,25 @@ You will not know the web domain until step 3, so set
 ### 3. Web service
 
 Add a second service from the same repo, with root directory `/`. It picks up
-`railway.json`, which builds `railway/Dockerfile.web` and health-checks
-`/watch-party/healthz`.
-
-Generate a domain for this service — this is the URL you and your friend use.
+`railway.json`, which builds `railway/Dockerfile.web`.
 
 Variables:
 
 ```
+PORT=8080
 WATCH_PARTY_UPSTREAM=watch-party.railway.internal:8787
 ```
 
 If you named the room service something other than `watch-party`, use that name
 here instead.
 
-`PORT` is injected by Railway; do not set it.
+Then generate a domain. **When Railway asks which port to expose, answer
+`8080`.** This is the URL you and your friend use.
+
+Setting `PORT` explicitly rather than relying on Railway to inject it is
+deliberate. Caddy binds `{$PORT:8080}`, so if Railway injected some other value
+while the domain pointed at 8080, every request would 502 — and the cause would
+not be obvious. Pinning both to 8080 removes the possibility.
 
 ### 4. Close the loop
 
@@ -102,11 +106,15 @@ WebSocket upgrade is rejected with a bare 403 and the interface only shows
 ## Checking it works
 
 ```sh
+curl https://<your-web-domain>/                        # the app's HTML
 curl https://<your-web-domain>/watch-party/healthz     # {"status":"ok"}
 ```
 
-That request goes through Caddy to the room service over the private network, so
-a healthy response proves the whole chain. Then open the site, start something
+The first proves the web service is up. The second goes through Caddy to the
+room service over the private network, so a healthy response proves the whole
+chain. If the first works and the second returns 502, the web service is fine
+and the private-network link is not — check `WATCH_PARTY_UPSTREAM` and that the
+room service has `WATCH_PARTY_HOST=::`. Then open the site, start something
 playing, and use the person icon in the player control bar.
 
 ## Watching together
@@ -155,10 +163,13 @@ half-working.
 
 ## If something does not work
 
-**Build fails on `pnpm install`.** The build needs `git`, and one transitive
-dependency (`vtt.js`) is pinned to an `ssh://` GitHub URL. `railway/Dockerfile.web`
-installs git and rewrites SSH GitHub URLs to anonymous HTTPS. If you build the
-web app in some other image, you need both.
+**Build fails on `pnpm install` fetching a git dependency.** The lockfile must
+resolve the repository's GitHub dependencies to HTTPS codeload tarballs. A pnpm
+newer than the pinned one rewrites them to `ssh://git@github.com`, which no
+unattended builder has a key for. The version is pinned in `package.json`'s
+`packageManager` field for exactly this reason — install with corepack (or the
+pinned version) rather than whatever pnpm happens to be on your PATH, and never
+commit a lockfile produced by a different one.
 
 **Health check fails / "Disconnected" in the interface.** Almost always one of:
 `WATCH_PARTY_HOST` is not `::`; `WATCH_PARTY_UPSTREAM` does not match the room
