@@ -238,15 +238,15 @@ const printInstructions = () => {
     log(bold('  Watch party demo is ready'));
     log('');
     log(`  ${bold('1.')} Open ${green(appUrl)} in ${bold('Chrome')} (this is the host).`);
-    log(`     Skip or complete the intro; no account is needed.`);
+    log('     Skip or complete the intro; no account is needed.');
     log('');
     log(`  ${bold('2.')} Click the search bar at the top and ${bold('paste')} this url:`);
     log(`     ${green(clipUrl)}`);
     log(`     ${dim('Pasting is what triggers playback — typing and pressing enter runs a search.')}`);
-    log(`     The player opens on a test clip with a running timecode.`);
+    log('     The player opens on a test clip with a running timecode.');
     log('');
     log(`  ${bold('3.')} In the player control bar, open the ${bold('person icon')} → ${bold('Start watch party')}.`);
-    log(`     Playback pauses and an invitation link appears. Copy it.`);
+    log('     Playback pauses and an invitation link appears. Copy it.');
     log('');
     log(`  ${bold('4.')} Open ${bold('Firefox')}, paste the invitation into the address bar, press enter,`);
     log(`     then click ${bold('Join')}. Firefox lands on the same clip, paused at the same spot.`);
@@ -255,11 +255,11 @@ const printInstructions = () => {
     log(`     ${dim('This is the gesture browsers require before audio may play.')}`);
     log('');
     log(`  ${bold('6.')} Press play in ${bold('Chrome')}. Both windows start together on the same frame.`);
-    log(`     Seek in Chrome and Firefox follows. Try Firefox's controls: they are disabled,`);
-    log(`     because only the host drives the timeline.`);
+    log('     Seek in Chrome and Firefox follows. Try Firefox\'s controls: they are disabled,');
+    log('     because only the host drives the timeline.');
     log('');
     log(dim(`  Room service logs:  docker logs -f ${CONTAINER}`));
-    log(dim(`  Stop everything:    Ctrl-C`));
+    log(dim('  Stop everything:    Ctrl-C'));
     log('');
 };
 
