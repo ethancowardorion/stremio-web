@@ -6,20 +6,18 @@ import { REQUIRED_CAPABILITIES, type PlayerCapabilities, type RoomPolicy } from 
  * MVP readiness policy (plan section 10).
  *
  * The host must be ready; whether guests gate the first start is the host's
- * choice. Nothing auto-pauses the room for guest buffering, because a slow or
- * hostile guest must not be able to hold the room hostage.
+ * choice. Sustained buffering pauses the room by default so nobody silently
+ * misses content. Clients debounce short buffering blips before reporting them.
  */
 export const DEFAULT_ROOM_POLICY: RoomPolicy = {
     requireAllReadyToStart: true,
-    pauseOnGuestBuffering: false,
+    pauseOnGuestBuffering: true,
     pauseOnHostStall: true,
 };
 
 export const normalizeRoomPolicy = (policy: Partial<RoomPolicy> | undefined): RoomPolicy => ({
     requireAllReadyToStart: policy?.requireAllReadyToStart ?? DEFAULT_ROOM_POLICY.requireAllReadyToStart,
-    // Not configurable in MVP: accepting `true` here would promise behaviour the
-    // service does not implement yet.
-    pauseOnGuestBuffering: DEFAULT_ROOM_POLICY.pauseOnGuestBuffering,
+    pauseOnGuestBuffering: policy?.pauseOnGuestBuffering ?? DEFAULT_ROOM_POLICY.pauseOnGuestBuffering,
     pauseOnHostStall: policy?.pauseOnHostStall ?? DEFAULT_ROOM_POLICY.pauseOnHostStall,
 });
 

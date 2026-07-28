@@ -31,12 +31,12 @@ import { isSupportedClient, normalizeRoomPolicy } from './RoomPolicy.ts';
  */
 
 /** Shortest window over which progress is meaningful rather than jitter. */
-const MIN_STALL_SAMPLE_MS = 1000;
+const MIN_STALL_SAMPLE_MS = 500;
 
 /** Below this fraction of expected progress, the host counts as stalled. */
 const STALL_PROGRESS_RATIO = 0.25;
 
-export type PauseReason = 'host_stalled';
+export type PauseReason = 'host_stalled' | 'participant_buffering';
 
 export type HostObservationResult = {
     changed: boolean;
@@ -412,6 +412,36 @@ export class Room {
     }
 
     /**
+     * Freezes a running room when a supported participant reports sustained
+     * buffering. Short blips are filtered by the client before they reach here.
+     *
+     * The host always gates the room because it is the reference playback. A
+     * guest gates it only when the room policy opts in.
+     */
+    pauseForBuffering(participantId: string, nowMs: number): HostObservationResult {
+        const unchanged: HostObservationResult = { changed: false, reason: null };
+        const participant = this.participants.get(participantId);
+        if (
+            participant === undefined ||
+            !participant.connected ||
+            !participant.supported ||
+            !participant.buffering ||
+            participant.mediaRevision !== this.mediaRevision ||
+            this.playback.paused ||
+            (!participant.isHost && !this.policy.pauseOnGuestBuffering)
+        ) {
+            return unchanged;
+        }
+
+        this.playback = freezePlayback(this.playback, nowMs, this.durationMs);
+        this.lastServerInitiatedRevision = this.playback.revision;
+        this.pauseReason = 'participant_buffering';
+        this.resetHostProgressTracking();
+        this.touch(nowMs);
+        return { changed: true, reason: 'participant_buffering' };
+    }
+
+    /**
      * Moves the room to a new media revision.
      *
      * Readiness resets for everyone, and playback restarts paused, so a stale
@@ -504,7 +534,7 @@ export class Room {
             stalled &&
             this.policy.pauseOnHostStall &&
             this.hostStalledSinceServerMs !== null &&
-            nowMs - this.hostStalledSinceServerMs >= stallGraceMs
+            nowMs - this.hostStalledSinceServerMs > stallGraceMs
         ) {
             // Pause where the host actually is, not where the room had reached.
             // That is the position it has data for, so resuming does not ask it

@@ -165,6 +165,40 @@ test('authority: a host command is broadcast to every member exactly once', asyn
     assert.equal(guest.received.filter((envelope) => envelope.type === 'playback.state').length, 1);
 });
 
+test('buffering: a guest report freezes playback for the whole room', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    host.send('playback.command', {
+        commandId: 'p1',
+        action: 'play',
+        expectedRevision: 1,
+        mediaRevision: 1,
+        leadMs: 0,
+    });
+    await host.waitFor(
+        (envelope) => envelope.type === 'playback.state' && (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+    await guest.waitFor(
+        (envelope) => envelope.type === 'playback.state' && (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+
+    await guest.ready(1, { buffering: true });
+    const hostPause = await host.waitFor(
+        (envelope) =>
+            envelope.type === 'playback.state' &&
+            envelope.payload.reason === 'participant_buffering',
+    );
+    const guestPause = await guest.waitFor(
+        (envelope) =>
+            envelope.type === 'playback.state' &&
+            envelope.payload.reason === 'participant_buffering',
+    );
+
+    assert.equal((hostPause.payload.playback as { paused: boolean }).paused, true);
+    assert.deepEqual(guestPause.payload.playback, hostPause.payload.playback);
+});
+
 test('barrier: the host cannot start until every participant is ready', async (t) => {
     const harness = await startHarness();
     t.after(() => harness.stop());

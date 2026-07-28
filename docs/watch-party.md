@@ -72,8 +72,12 @@ untouched.
   stalled reports a position that stopped advancing; following it backwards
   would drag everyone else back, and since they keep playing forward the result
   is a sawtooth that never settles.
-- If the host stops making progress for longer than the grace period
-  (`WATCH_PARTY_HOST_STALL_GRACE_MS`, 3 s), the room pauses at the host's own
+- Buffering lasting 500 ms or less is ignored. Once a host or guest buffers beyond
+  that grace period, the room freezes so nobody continues consuming content.
+  The host can resume after the participant catches up. Rooms may opt out of
+  guest-triggered pauses with the `pauseOnGuestBuffering` policy.
+- If the host stops making progress for longer than the fallback grace period
+  (`WATCH_PARTY_HOST_STALL_GRACE_MS`, 500 ms), the room pauses at the host's own
   position — the one it has data for — and says so. Turn it off per room with
   the `pauseOnHostStall` policy. Stalling is measured from position rather than
   the browser's buffering flag, which reports a healthy playing element as
@@ -200,9 +204,8 @@ has not been performed.
 install/upgrade across a protocol change. Starting or joining a party while
 casting is refused rather than left to behave unpredictably.
 
-**Not implemented, by design for MVP:** host transfer, reactions and chat,
-automatic re-resolution of a failed source, and pausing the room for a buffering
-guest.
+**Not implemented, by design for MVP:** host transfer, reactions and chat, and
+automatic re-resolution of a failed source.
 
 ## Tests
 

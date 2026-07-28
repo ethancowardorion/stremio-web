@@ -495,6 +495,44 @@ describe('watch party player adapter: readiness', () => {
         unmount();
     });
 
+    it('ignores buffering lasting 500 ms or less', () => {
+        jest.useFakeTimers();
+        try {
+            const { value, readiness } = followerValue({
+                playback: createPlayback({ paused: false, effectiveAtServerMs: T0, positionMs: 60_000 }),
+            });
+            const video = createFakeVideo({ paused: false, buffering: true });
+            const adapter = renderAdapter({ watchPartyValue: value, video });
+
+            act(() => jest.advanceTimersByTime(500));
+            video.state.buffering = false;
+            adapter.rerender();
+
+            expect(readiness.every((entry) => entry.buffering === false)).toBe(true);
+            adapter.unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('reports buffering once it lasts beyond 500 ms', () => {
+        jest.useFakeTimers();
+        try {
+            const { value, readiness } = followerValue({
+                playback: createPlayback({ paused: false, effectiveAtServerMs: T0, positionMs: 60_000 }),
+            });
+            const video = createFakeVideo({ paused: false, buffering: true });
+            const adapter = renderAdapter({ watchPartyValue: value, video });
+
+            act(() => jest.advanceTimersByTime(501));
+
+            expect(readiness[readiness.length - 1].buffering).toBe(true);
+            adapter.unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
     it('stops reporting ready once a stall has let it fall behind', () => {
         const { value } = followerValue({
             playback: createPlayback({ paused: false, effectiveAtServerMs: T0 - 1000, positionMs: 59_000 }),

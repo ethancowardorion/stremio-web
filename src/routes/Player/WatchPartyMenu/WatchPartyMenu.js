@@ -152,6 +152,12 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                                 null
                         }
                         {
+                            watchParty.pauseReason === 'participant_buffering' ?
+                                <div className={styles['notice']}>{t('WATCH_PARTY_PAUSED_BUFFERING')}</div>
+                                :
+                                null
+                        }
+                        {
                             watchParty.isFollower && !watchParty.ready ?
                                 <div className={styles['notice']}>{t('WATCH_PARTY_WAITING_FOR_HOST')}</div>
                                 :

@@ -140,7 +140,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => ({
     commandHistorySize: readInt(env, 'WATCH_PARTY_COMMAND_HISTORY_SIZE', 256, 8, 8192),
     defaultLeadMs: readInt(env, 'WATCH_PARTY_DEFAULT_LEAD_MS', 750, 0, 5000),
     hostObservationToleranceMs: readInt(env, 'WATCH_PARTY_HOST_OBSERVATION_TOLERANCE_MS', 250, 0, 10_000),
-    hostStallGraceMs: readInt(env, 'WATCH_PARTY_HOST_STALL_GRACE_MS', 3000, 0, 60_000),
+    hostStallGraceMs: readInt(env, 'WATCH_PARTY_HOST_STALL_GRACE_MS', 500, 0, 60_000),
     rateLimits: {
         clockPingPerSec: readInt(env, 'WATCH_PARTY_RATE_CLOCK_PER_SEC', 1, 1, 100),
         clockPingBurst: readInt(env, 'WATCH_PARTY_RATE_CLOCK_BURST', 8, 1, 100),

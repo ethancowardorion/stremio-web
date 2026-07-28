@@ -456,6 +456,15 @@ export class WatchPartyService {
         const { room, participantId } = this.requireRoomMembership(session);
         const participant = room.updateReadiness(participantId, payload, nowMs);
         this.broadcast(room, 'participant.updated', { participant: room.toParticipantPublic(participant) });
+        const bufferingPause = room.pauseForBuffering(participantId, nowMs);
+        if (bufferingPause.changed) {
+            this.broadcast(room, 'playback.state', {
+                playback: room.playback,
+                serverTimeMs: this.now(),
+                reason: bufferingPause.reason,
+            });
+            this.logger.info('room_paused', { roomId: room.roomId, reason: bufferingPause.reason });
+        }
     }
 
     private handlePlaybackCommand(
@@ -505,6 +514,17 @@ export class WatchPartyService {
         participant.durationMs = payload.durationMs;
         participant.mediaRevision = payload.mediaRevision;
         participant.lastSeenServerMs = nowMs;
+
+        const bufferingPause = room.pauseForBuffering(participantId, nowMs);
+        if (bufferingPause.changed) {
+            this.broadcast(room, 'playback.state', {
+                playback: room.playback,
+                serverTimeMs: this.now(),
+                reason: bufferingPause.reason,
+            });
+            this.logger.info('room_paused', { roomId: room.roomId, reason: bufferingPause.reason });
+            return;
+        }
 
         if (participant.isHost) {
             const result = room.applyHostObservation(

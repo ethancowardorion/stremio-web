@@ -47,6 +47,7 @@ const WATCH_PARTY_TRANSLATIONS = {
 
         WATCH_PARTY_WAITING_FOR_HOST: 'Waiting for the host to start',
         WATCH_PARTY_PAUSED_HOST_STALLED: 'Paused: the host could not keep up with this stream. A smaller or already browser-friendly file will play far better for everyone.',
+        WATCH_PARTY_PAUSED_BUFFERING: 'Paused because someone is buffering. The host can resume once everyone has caught up.',
         WATCH_PARTY_WAITING_FOR_PARTICIPANTS: 'Waiting for everyone to be ready',
         WATCH_PARTY_CONTROLS_LOCKED: 'The host controls playback',
         WATCH_PARTY_REQUIRE_ALL_READY: 'Wait for everyone before starting',

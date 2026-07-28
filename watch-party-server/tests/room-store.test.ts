@@ -271,6 +271,66 @@ test('barrier: a media change re-arms it for the new episode', () => {
     );
 });
 
+test('buffering: a supported guest freezes a running room by default', () => {
+    const room = makeReadyRoom();
+    const guest = room.join({
+        inviteSecret: room.inviteSecret,
+        displayName: 'Guest',
+        deviceLabel: null,
+        capabilities: capabilities(),
+        nowMs: T0,
+    });
+    room.updateReadiness(guest.participantId, {
+        ready: true, loaded: true, buffering: false, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0);
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+
+    room.updateReadiness(guest.participantId, {
+        ready: true, loaded: true, buffering: true, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 750);
+    const result = room.pauseForBuffering(guest.participantId, T0 + 750);
+
+    assert.deepEqual(result, { changed: true, reason: 'participant_buffering' });
+    assert.equal(room.playback.paused, true);
+    assert.equal(room.playback.positionMs, 750);
+    assert.equal(room.pauseReason, 'participant_buffering');
+});
+
+test('buffering: a room can opt out of guest-triggered pauses', () => {
+    const room = makeReadyRoom({ pauseOnGuestBuffering: false });
+    const guest = room.join({
+        inviteSecret: room.inviteSecret,
+        displayName: 'Guest',
+        deviceLabel: null,
+        capabilities: capabilities(),
+        nowMs: T0,
+    });
+    room.updateReadiness(guest.participantId, {
+        ready: true, loaded: true, buffering: true, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0);
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+
+    assert.deepEqual(room.pauseForBuffering(guest.participantId, T0 + 750), { changed: false, reason: null });
+    assert.equal(room.playback.paused, false);
+});
+
+test('buffering: a host freezes the room even when guest buffering is ignored', () => {
+    const room = makeReadyRoom({ pauseOnGuestBuffering: false });
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+    room.updateReadiness(room.hostParticipantId, {
+        ready: true, loaded: true, buffering: true, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 750);
+
+    assert.equal(room.pauseForBuffering(room.hostParticipantId, T0 + 750).changed, true);
+    assert.equal(room.playback.paused, true);
+});
+
 test('media change: a replayed change id does not advance the revision twice', () => {
     const room = makeReadyRoom();
     const first = room.changeMedia(room.hostParticipantId, { mediaChangeId: 'm1', media: media(), source: source() }, T0);

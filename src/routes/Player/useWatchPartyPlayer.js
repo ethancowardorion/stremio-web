@@ -35,7 +35,7 @@ const {
 const CORRECTION_INTERVAL_MS = 250;
 
 // The host is the reference clock, so it publishes its real position regularly.
-const HOST_OBSERVATION_INTERVAL_MS = 2000;
+const HOST_OBSERVATION_INTERVAL_MS = 500;
 
 // Guests report far less often: their observations only feed presence and the
 // service's drift histogram.
@@ -46,6 +46,11 @@ const GUEST_OBSERVATION_INTERVAL_MS = 5000;
 const ACTIVATION_TIMEOUT_MS = 1200;
 
 const READINESS_INTERVAL_MS = 1000;
+
+// A short rebuffer is cheaper and less disruptive than stopping the room. Only
+// publish buffering after it persists long enough that somebody would otherwise
+// start missing content.
+const BUFFERING_GRACE_MS = 500;
 
 // A seek is treated as landed once observed time is this close to the target.
 const SEEK_SETTLE_TOLERANCE_MS = 500;
@@ -61,6 +66,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     const [activated, setActivated] = React.useState(false);
     const [activationRequired, setActivationRequired] = React.useState(false);
     const [driftMs, setDriftMs] = React.useState(null);
+    const [sustainedBuffering, setSustainedBuffering] = React.useState(false);
 
     const inRoom = watchParty.inRoom;
     const isHost = watchParty.isHost;
@@ -105,6 +111,21 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     }, []);
     const lastReadinessRef = React.useRef(null);
     const publishedFingerprintRef = React.useRef(null);
+
+    React.useEffect(() => {
+        // A paused element commonly reports buffering even though it is merely
+        // waiting to be played, so only debounce stalls during active playback.
+        if (!inRoom || video.state.buffering !== true || video.state.paused === true) {
+            setSustainedBuffering(false);
+            return;
+        }
+        const timer = setTimeout(() => {
+            if (videoStateRef.current.buffering === true && videoStateRef.current.paused !== true) {
+                setSustainedBuffering(true);
+            }
+        }, BUFFERING_GRACE_MS + 1);
+        return () => clearTimeout(timer);
+    }, [inRoom, video.state.buffering, video.state.paused]);
 
     // ---------------------------------------------------------------- identity
 
@@ -348,7 +369,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             const next = {
                 ready,
                 loaded: state.loaded === true,
-                buffering: state.buffering === true,
+                buffering: sustainedBuffering,
                 durationMs: typeof state.duration === 'number' ? state.duration : null,
                 mediaRevision: watchPartyRef.current.mediaRevision,
                 sourceFingerprint: localFingerprint,
@@ -369,7 +390,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         publish();
         const interval = setInterval(publish, READINESS_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [inRoom, ready, localFingerprint, watchParty.mediaRevision]);
+    }, [inRoom, ready, sustainedBuffering, localFingerprint, watchParty.mediaRevision]);
 
     // --------------------------------------------------------- observations
 
@@ -387,14 +408,14 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
                 positionMs: state.time,
                 paused: state.paused === true,
                 rate: typeof state.playbackSpeed === 'number' ? state.playbackSpeed : 1,
-                buffering: state.buffering === true,
+                buffering: sustainedBuffering,
                 durationMs: typeof state.duration === 'number' ? state.duration : null,
                 mediaRevision: watchPartyRef.current.mediaRevision,
             });
         };
         const interval = setInterval(publish, intervalMs);
         return () => clearInterval(interval);
-    }, [inRoom, isHost]);
+    }, [inRoom, isHost, sustainedBuffering]);
 
     // ------------------------------------------------------ player -> canonical
 

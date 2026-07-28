@@ -103,7 +103,7 @@ export type PlaybackState = {
 export type RoomPolicy = {
     /** Whether the first start waits for every guest, or only for the host. */
     requireAllReadyToStart: boolean;
-    /** MVP keeps this off: one slow guest must not be able to lock the room. */
+    /** Whether sustained buffering by a supported guest freezes the room. */
     pauseOnGuestBuffering: boolean;
     /**
      * Whether the room pauses when the *host* stops making progress.
