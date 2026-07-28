@@ -320,6 +320,65 @@ test('observation: a host observation within tolerance changes nothing', () => {
     assert.equal(room.playback.revision, revisionBefore);
 });
 
+test('observation: a stalled host never drags the room backwards', () => {
+    // Reported from real two-client use: the host seeks, rebuffers, and its
+    // position stops advancing. If canonical follows it back, every other
+    // participant is yanked backwards, plays forward again before the next
+    // observation, and is yanked back once more — a sawtooth that only ends
+    // when the host recovers.
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+    const revisionBefore = room.playback.revision;
+
+    // Ten seconds of wall time pass; the host has managed only one.
+    const changed = room.applyHostObservation(
+        room.hostParticipantId,
+        { positionMs: 1_000, paused: false, rate: 1, mediaRevision: 1 },
+        T0 + 10_000,
+        250,
+    );
+
+    assert.equal(changed, false);
+    assert.equal(room.playback.revision, revisionBefore);
+    // The room keeps running, so the stalled host is measurably behind and can
+    // report itself unready rather than claiming to be synchronized.
+    assert.equal(room.canonicalPositionMs(T0 + 10_000), 10_000);
+});
+
+test('observation: the room still follows a host that runs ahead', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+
+    const changed = room.applyHostObservation(
+        room.hostParticipantId,
+        { positionMs: 12_000, paused: false, rate: 1, mediaRevision: 1 },
+        T0 + 10_000,
+        250,
+    );
+
+    assert.equal(changed, true);
+    assert.equal(room.playback.positionMs, 12_000);
+});
+
+test('observation: repeated stalled reports leave canonical monotonic', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0 }, T0);
+
+    let previous = room.canonicalPositionMs(T0);
+    for (let tick = 1; tick <= 6; tick += 1) {
+        const nowMs = T0 + tick * 2_000;
+        room.applyHostObservation(
+            room.hostParticipantId,
+            { positionMs: 1_500, paused: false, rate: 1, mediaRevision: 1 },
+            nowMs,
+            250,
+        );
+        const current = room.canonicalPositionMs(nowMs);
+        assert.ok(current >= previous, `canonical went backwards: ${previous} -> ${current}`);
+        previous = current;
+    }
+});
+
 test('observation: a disagreeing paused flag is ignored rather than adopted', () => {
     // A transient host rebuffer must not flip the whole room's play state.
     const room = makeReadyRoom();

@@ -460,7 +460,32 @@ export class Room {
             return false;
         }
         const canonicalPositionMs = positionAtServerMs(this.playback, nowMs, this.durationMs);
-        if (Math.abs(observation.positionMs - canonicalPositionMs) <= toleranceMs) {
+        const deltaMs = observation.positionMs - canonicalPositionMs;
+        if (Math.abs(deltaMs) <= toleranceMs) {
+            this.touch(nowMs);
+            return false;
+        }
+        if (deltaMs < 0) {
+            // The host is *behind* the room. That means its own playback stalled
+            // — after a seek, while it rebuffers — not that the room is in the
+            // wrong place.
+            //
+            // Rewinding canonical to meet it would drag every other participant
+            // backwards, and because they keep playing forward they would run
+            // ahead again before the next observation, get yanked back, and
+            // repeat: a sawtooth that never settles while the host is stalled.
+            // Worse, canonical would track the stalled host closely enough that
+            // everyone still looks synchronized while nobody is watching
+            // anything.
+            //
+            // Backwards motion is what an explicit seek command is for. A
+            // stalled host catches up through its own drift correction once it
+            // can play again.
+            //
+            // Deliberately not keyed on the reported buffering flag: browsers
+            // report a healthy playing element as buffering for some sources,
+            // so it cannot distinguish a stall from normal playback. A position
+            // that fails to advance can.
             this.touch(nowMs);
             return false;
         }
