@@ -107,6 +107,11 @@ Same-origin means the client derives `wss://<origin>/watch-party/ws` from
 `window.location` with no build-time configuration and no CORS. Override with
 `WATCH_PARTY_WS_URL` at build time for development or a split deployment.
 
+For two people, a public origin is more than you need. See
+[`watch-party-tailscale.md`](watch-party-tailscale.md) for running the same
+stack on a Tailscale tailnet instead: real HTTPS, no domain, no port forwarding
+and nothing exposed to the internet.
+
 Verified against the built container: it runs read-only as a non-root user, its
 health check reports healthy, two clients complete a full host/guest flow through
 it, a guest command is refused, and no auth key or add-on URL appears in its

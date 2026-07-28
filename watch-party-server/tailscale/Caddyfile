@@ -1,0 +1,50 @@
+# Copyright (C) 2017-2026 Smart code 203358507
+#
+# Path routing for the Tailscale deployment. TLS is not handled here: Tailscale
+# Serve terminates HTTPS with a real certificate for the node's MagicDNS name and
+# forwards plain HTTP to this container, so Caddy only has to decide what goes
+# where.
+
+{
+	# No ACME, no port 80/443 binding. Tailscale owns the certificate.
+	auto_https off
+	admin off
+}
+
+:80 {
+	encode zstd gzip
+
+	# The public path is rewritten onto the service's versioned path, so the
+	# protocol version can change without invalidating invitations already
+	# handed out.
+	handle /watch-party/ws {
+		rewrite * /v1/ws
+		reverse_proxy watch-party:8787
+	}
+
+	handle /watch-party/healthz {
+		rewrite * /healthz
+		reverse_proxy watch-party:8787
+	}
+
+	# Metrics are deliberately not routed. Scrape the service directly if you
+	# want them.
+
+	handle {
+		root * /srv/stremio-web
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# No HSTS: Tailscale already serves this origin over HTTPS only, and a
+		# stray HSTS header on a .ts.net name would outlive this deployment.
+		#
+		# No Content-Security-Policy either. Stremio loads a core Web Worker and
+		# WASM, talks to arbitrary user-installed addon origins, a streaming
+		# server on 127.0.0.1, and Chromecast's script. Build a policy from
+		# Content-Security-Policy-Report-Only data before enforcing one.
+	}
+}

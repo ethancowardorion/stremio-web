@@ -1,0 +1,56 @@
+# Copyright (C) 2017-2026 Smart code 203358507
+#
+# Watch party stack for a Tailscale tailnet.
+#
+# Nothing here is exposed to the internet. Caddy binds to loopback only, and
+# `tailscale serve` puts it on the tailnet over HTTPS with a real certificate.
+# See docs/watch-party-tailscale.md.
+
+services:
+  watch-party:
+    build: ..
+    restart: unless-stopped
+    environment:
+      # Must exactly match the origin the browser will use, including scheme.
+      # Anything else and every browser is rejected at the WebSocket upgrade.
+      WATCH_PARTY_ALLOWED_ORIGINS: ${WATCH_PARTY_ORIGIN:?set WATCH_PARTY_ORIGIN in .env, e.g. https://your-machine.your-tailnet.ts.net}
+      WATCH_PARTY_PORT: "8787"
+      WATCH_PARTY_HOST: "0.0.0.0"
+      # Metrics listener off: nothing scrapes it in a two-person deployment.
+      WATCH_PARTY_METRICS_PORT: "-1"
+      # Caddy sets X-Forwarded-For, so per-IP limits see the real peer.
+      WATCH_PARTY_TRUST_PROXY: "true"
+      WATCH_PARTY_LOG_LEVEL: "info"
+      # A handful of people, not a public service.
+      WATCH_PARTY_MAX_ROOMS: "20"
+      WATCH_PARTY_MAX_PARTICIPANTS: "10"
+    expose:
+      - "8787"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - watch-party
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      # Loopback only. Tailscale Serve is what makes this reachable, and only
+      # to your tailnet.
+      - "127.0.0.1:${WATCH_PARTY_HTTP_PORT:-8123}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The output of `pnpm build` at the repository root.
+      - ../../build:/srv/stremio-web:ro
+    depends_on:
+      - watch-party
+    networks:
+      - watch-party
+
+networks:
+  watch-party:
