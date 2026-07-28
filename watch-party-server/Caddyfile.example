@@ -1,0 +1,42 @@
+# Copyright (C) 2017-2026 Smart code 203358507
+#
+# Same-origin reverse proxy: the web build and the room service share one TLS
+# origin, so the client can derive wss://<origin>/watch-party/ws without any
+# build-time configuration and without CORS.
+
+stremio.example.com {
+	encode zstd gzip
+
+	# WebSocket upgrade. The public path is rewritten onto the service's
+	# versioned path, so the protocol version can change without changing the
+	# URL clients have already been handed in invitations.
+	handle /watch-party/ws {
+		rewrite * /v1/ws
+		reverse_proxy watch-party:8787
+	}
+
+	handle /watch-party/healthz {
+		rewrite * /healthz
+		reverse_proxy watch-party:8787
+	}
+
+	# Metrics are deliberately not exposed here. Scrape the service's internal
+	# listener from your monitoring network instead.
+
+	handle {
+		root * /srv/stremio-web
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Content-Security-Policy is intentionally absent. Stremio loads a core
+		# Web Worker and WASM, talks to arbitrary user-installed add-on origins,
+		# a local streaming server on 127.0.0.1, Chromecast's script and Apple
+		# login's script. Deploy Content-Security-Policy-Report-Only first and
+		# build the policy from real violation data (plan section 15.4).
+	}
+}

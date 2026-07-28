@@ -12,7 +12,20 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const packageJson = require('./package.json');
 
-const COMMIT_HASH = execSync('git rev-parse HEAD').toString().trim();
+// Asset paths are namespaced by commit so a deploy cannot serve a half-updated
+// mix of old and new bundles. Container builders do not always ship `.git` or a
+// git binary, so fall back to whatever the platform exposes rather than failing
+// the build outright.
+const COMMIT_HASH = (() => {
+    try {
+        return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch (_) {
+        return process.env.RAILWAY_GIT_COMMIT_SHA ||
+            process.env.SOURCE_COMMIT ||
+            process.env.COMMIT_HASH ||
+            'development';
+    }
+})();
 
 const THREAD_LOADER = {
     loader: 'thread-loader',
@@ -185,8 +198,25 @@ module.exports = (env, argv) => ({
         host: '0.0.0.0',
         static: false,
         hot: false,
-        server: 'https',
-        liveReload: false
+        // Overridable so the local watch party demo can serve plain HTTP and
+        // avoid a self-signed certificate warning in each of two browsers.
+        server: env?.DEV_SERVER_TYPE ?? 'https',
+        liveReload: false,
+        // Mirrors the production reverse proxy (see watch-party-server/Caddyfile.example)
+        // so the client derives its endpoint from window.location in development
+        // exactly as it does in production, with no build-time configuration and
+        // no cross-origin WebSocket.
+        proxy: [
+            {
+                context: ['/watch-party/ws'],
+                target: env?.WATCH_PARTY_PROXY_TARGET ?? 'http://127.0.0.1:8787',
+                ws: true,
+                pathRewrite: { '^/watch-party/ws': '/v1/ws' },
+                // Without a service running this would log a stack trace on every
+                // attempt; the client already reports the failure in the interface.
+                logLevel: 'silent',
+            },
+        ]
     },
     optimization: {
         minimize: true,
@@ -211,6 +241,10 @@ module.exports = (env, argv) => ({
         new webpack.ProgressPlugin(),
         new webpack.EnvironmentPlugin({
             SENTRY_DSN: null,
+            // Null means "derive wss://<current-origin>/watch-party/ws at runtime",
+            // which is what the same-origin reverse proxy deployment expects. Set
+            // it explicitly only for development or a split deployment.
+            WATCH_PARTY_WS_URL: null,
             ...env,
             SERVICE_WORKER_DISABLED: false,
             DEBUG: argv.mode !== 'production',

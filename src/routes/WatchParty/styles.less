@@ -1,0 +1,208 @@
+// Copyright (C) 2017-2026 Smart code 203358507
+
+@import (reference) '~@stremio/stremio-colors/less/stremio-colors.less';
+
+.watch-party-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+
+    .nav-bar {
+        flex: none;
+        align-self: stretch;
+    }
+
+    .watch-party-content {
+        flex: 1;
+        align-self: center;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        width: 100%;
+        max-width: 36rem;
+        padding: 2rem 1.5rem;
+        overflow-y: auto;
+    }
+
+    .notice {
+        flex: none;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: @color-background-light2;
+        color: @color-surface-light5-90;
+        font-size: 1rem;
+        line-height: 1.4;
+
+        &.notice-error {
+            color: @color-accent1;
+        }
+    }
+
+    .section-label {
+        flex: none;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: @color-surface-light5-60;
+    }
+
+    .media-title {
+        flex: none;
+        margin-bottom: 1.5rem;
+        font-size: 1.6rem;
+        color: @color-surface-light5-90;
+    }
+
+    .join-panel,
+    .room-panel {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .field {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin-bottom: 1.25rem;
+
+        .field-label {
+            font-size: 0.9rem;
+            color: @color-surface-light5-60;
+        }
+
+        .field-input {
+            padding: 0.75rem 1rem;
+            border-radius: 0.4rem;
+            background-color: @color-background-light2;
+            color: @color-surface-light5-90;
+            font-size: 1rem;
+        }
+    }
+
+    .actions {
+        flex: none;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1rem;
+
+        .action-button {
+            flex: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 10rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.4rem;
+            background-color: @color-primaryvariant1;
+            color: @color-surface-light5-90;
+
+            &:hover {
+                background-color: @color-primaryvariant1-light1;
+            }
+
+            &.secondary {
+                background-color: @color-background-light2;
+
+                &:hover {
+                    background-color: @color-background-light3;
+                }
+            }
+
+            &.disabled {
+                pointer-events: none;
+                opacity: 0.5;
+            }
+
+            .action-label {
+                font-size: 1rem;
+                text-align: center;
+            }
+        }
+    }
+
+    .participant-list {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin: 0 0 1rem;
+        padding: 0;
+        list-style: none;
+    }
+}
+
+// Shared by the join route and the in-player menu, so it lives outside the
+// route container selector.
+.participant-list {
+    .participant {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.4rem;
+        background-color: @color-background-light2;
+
+        .participant-identity {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            min-width: 0;
+
+            .participant-name {
+                font-size: 1rem;
+                color: @color-surface-light5-90;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            // Two devices on one Stremio account share a name, so the device
+            // label is what tells them apart.
+            .participant-device {
+                font-size: 0.85rem;
+                color: @color-surface-light5-60;
+            }
+
+            .participant-badge {
+                padding: 0.1rem 0.4rem;
+                border-radius: 0.25rem;
+                background-color: @color-background-light3;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: @color-surface-light5-60;
+            }
+        }
+
+        .participant-status {
+            flex: none;
+            font-size: 0.85rem;
+            color: @color-surface-light5-60;
+
+            &.ready {
+                color: @color-accent3;
+            }
+
+            &.buffering {
+                color: @color-accent5;
+            }
+
+            &.offline,
+            &.unsupported {
+                color: @color-accent1;
+            }
+        }
+    }
+}

@@ -24,7 +24,10 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11.8.0
+          # Version comes from package.json's packageManager field, so CI, the
+          # container builds and a developer machine cannot drift apart. They
+          # already did once: a newer pnpm rewrote a GitHub dependency in the
+          # lockfile to an ssh:// URL that no unattended builder can fetch.
           run_install: false
       - name: Setup node
         uses: actions/setup-node@v7

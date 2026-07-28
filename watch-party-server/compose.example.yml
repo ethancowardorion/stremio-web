@@ -1,0 +1,65 @@
+# Copyright (C) 2017-2026 Smart code 203358507
+#
+# Reference deployment: one TLS origin serving the Stremio Web build, with the
+# watch party service reachable at /watch-party/ws on the same origin. Media is
+# never proxied through either container.
+
+services:
+  watch-party:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Browser origins allowed to open a socket. Without this, every browser
+      # client is rejected. Non-browser clients omit `Origin` and are allowed,
+      # because the invitation secret is what authorizes joining a room.
+      WATCH_PARTY_ALLOWED_ORIGINS: "https://stremio.example.com"
+      WATCH_PARTY_PORT: "8787"
+      WATCH_PARTY_HOST: "0.0.0.0"
+      # Metrics stay on a separate listener; publish it only to your monitoring
+      # network, or set -1 to disable it entirely.
+      WATCH_PARTY_METRICS_HOST: "0.0.0.0"
+      WATCH_PARTY_METRICS_PORT: "9091"
+      # Required so per-IP connection limits see the real client address rather
+      # than the reverse proxy's.
+      WATCH_PARTY_TRUST_PROXY: "true"
+      WATCH_PARTY_LOG_LEVEL: "info"
+      WATCH_PARTY_MAX_ROOMS: "200"
+      WATCH_PARTY_MAX_PARTICIPANTS: "20"
+      WATCH_PARTY_ROOM_TTL_MS: "43200000"
+      WATCH_PARTY_ROOM_IDLE_TTL_MS: "1800000"
+    expose:
+      - "8787"
+      - "9091"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - watch-party
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      # The output of `pnpm build` in the stremio-web checkout.
+      - ../build:/srv/stremio-web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - watch-party
+    networks:
+      - watch-party
+
+networks:
+  watch-party:
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -45,6 +45,10 @@ const ControlBar = React.forwardRef(({
     videoScaleLabel,
     onVideoScaleChanged,
     onToggleStatisticsMenu,
+    watchPartyAvailable,
+    watchPartyActive,
+    timelineControlsLocked,
+    onToggleWatchPartyMenu,
     onTouchEnd,
     ...props
 }, ref) => {
@@ -72,6 +76,9 @@ const ControlBar = React.forwardRef(({
     }, []);
     const onCastDevicesButtonMouseDown = React.useCallback((event) => {
         event.nativeEvent.castDevicesMenuClosePrevented = true;
+    }, []);
+    const onWatchPartyButtonMouseDown = React.useCallback((event) => {
+        event.nativeEvent.watchPartyMenuClosePrevented = true;
     }, []);
     const onPlayPauseButtonClick = React.useCallback(() => {
         if (paused) {
@@ -124,21 +131,26 @@ const ControlBar = React.forwardRef(({
     }, []);
     return (
         <div ref={ref} {...props} onTouchStart={props.onMouseOver} onTouchMove={props.onMouseMove} onTouchEnd={onTouchEnd} className={classnames(className, styles['control-bar-container'])}>
+            {/*
+                While following a watch party the timeline is owned by the host.
+                The controls are visibly disabled rather than silently ignored, so
+                a guest can see why nothing happens (plan section 6.3).
+            */}
             <SeekBar
-                className={styles['seek-bar']}
+                className={classnames(styles['seek-bar'], { 'disabled': timelineControlsLocked })}
                 time={time}
                 duration={duration}
                 buffered={buffered}
-                onSeekRequested={onSeekRequested}
+                onSeekRequested={timelineControlsLocked ? null : onSeekRequested}
                 playbackSpeed={playbackSpeed}
             />
             <div className={styles['control-bar-buttons-container']}>
-                <Button className={classnames(styles['control-bar-button'], { 'disabled': typeof paused !== 'boolean' })} title={paused ? t('PLAYER_PLAY') : t('PLAYER_PAUSE')} tabIndex={-1} onClick={onPlayPauseButtonClick}>
+                <Button className={classnames(styles['control-bar-button'], { 'disabled': typeof paused !== 'boolean' || timelineControlsLocked })} title={paused ? t('PLAYER_PLAY') : t('PLAYER_PAUSE')} tabIndex={-1} onClick={onPlayPauseButtonClick}>
                     <Icon className={styles['icon']} name={typeof paused !== 'boolean' || paused ? 'play' : 'pause'} />
                 </Button>
                 {
                     nextVideo !== null ?
-                        <Button className={classnames(styles['control-bar-button'])} title={t('PLAYER_NEXT_VIDEO')} tabIndex={-1} onClick={onNextVideoButtonClick}>
+                        <Button className={classnames(styles['control-bar-button'], { 'disabled': timelineControlsLocked })} title={t('PLAYER_NEXT_VIDEO')} tabIndex={-1} onClick={onNextVideoButtonClick}>
                             <Icon className={styles['icon']} name={'next'} />
                         </Button>
                         :
@@ -175,9 +187,23 @@ const ControlBar = React.forwardRef(({
                     <Button className={classnames(styles['control-bar-button'], { 'disabled': statistics === null || statistics.type === 'Err' || stream === null || typeof stream.infoHash !== 'string' || typeof stream.fileIdx !== 'number' })} tabIndex={-1} onMouseDown={onStatisticsButtonMouseDown} onClick={onToggleStatisticsMenu}>
                         <Icon className={styles['icon']} name={'network'} />
                     </Button>
-                    <Button className={classnames(styles['control-bar-button'], { 'disabled': playbackSpeed === null })} tabIndex={-1} onMouseDown={onSpeedButtonMouseDown} onClick={onToggleSpeedMenu}>
+                    <Button className={classnames(styles['control-bar-button'], { 'disabled': playbackSpeed === null || timelineControlsLocked })} tabIndex={-1} onMouseDown={onSpeedButtonMouseDown} onClick={onToggleSpeedMenu}>
                         <Icon className={styles['icon']} name={'speed'} />
                     </Button>
+                    {
+                        watchPartyAvailable ?
+                            <Button
+                                className={classnames(styles['control-bar-button'], styles['watch-party-button'], { 'active': watchPartyActive })}
+                                title={t('WATCH_PARTY')}
+                                tabIndex={-1}
+                                onMouseDown={onWatchPartyButtonMouseDown}
+                                onClick={onToggleWatchPartyMenu}
+                            >
+                                <Icon className={styles['icon']} name={'person-outline'} />
+                            </Button>
+                            :
+                            null
+                    }
                     <Button className={classnames(styles['control-bar-button'], { 'disabled': castButtonDisabled })} tabIndex={-1} onMouseDown={onCastDevicesButtonMouseDown} onClick={onChromecastButtonClick}>
                         <Icon className={styles['icon']} name={'cast'} />
                     </Button>
@@ -240,6 +266,10 @@ ControlBar.propTypes = {
     shellCastSupported: PropTypes.bool,
     onToggleCastDevicesMenu: PropTypes.func,
     onToggleStatisticsMenu: PropTypes.func,
+    watchPartyAvailable: PropTypes.bool,
+    watchPartyActive: PropTypes.bool,
+    timelineControlsLocked: PropTypes.bool,
+    onToggleWatchPartyMenu: PropTypes.func,
     onMouseOver: PropTypes.func,
     onMouseMove: PropTypes.func,
     onTouchEnd: PropTypes.func,

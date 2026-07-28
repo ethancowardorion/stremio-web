@@ -1,0 +1,75 @@
+name: Watch Party Server
+
+# The room service is a self-contained package with its own toolchain, so it
+# gets its own workflow rather than being bolted onto the web build. Paths are
+# filtered so web-only changes do not run it.
+on:
+  push:
+    branches:
+      - development
+    paths:
+      - "watch-party-server/**"
+      - ".github/workflows/watch-party-server.yml"
+    tags-ignore:
+      - "**"
+  pull_request:
+    paths:
+      - "watch-party-server/**"
+      - ".github/workflows/watch-party-server.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: watch-party-server
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          # Needs 22.18 or newer for native TypeScript type stripping, which is
+          # how the tests run the sources directly.
+          node-version-file: .nvmrc
+          cache: "npm"
+          cache-dependency-path: watch-party-server/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t stremio-watch-party-server:ci .
+      - name: Verify the container starts and reports healthy
+        run: |
+          docker run -d --name watch-party-ci \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            -e WATCH_PARTY_ALLOWED_ORIGINS=https://example.test \
+            -p 18787:8787 stremio-watch-party-server:ci
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18787/readyz > /dev/null; then
+              echo "service is ready"
+              docker rm -f watch-party-ci
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "service did not become ready"
+          docker logs watch-party-ci
+          docker rm -f watch-party-ci
+          exit 1

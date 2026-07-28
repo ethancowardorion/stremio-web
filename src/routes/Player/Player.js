@@ -27,6 +27,8 @@ const { default: AudioMenu } = require('./AudioMenu');
 const SpeedMenu = require('./SpeedMenu');
 const { default: SideDrawerButton } = require('./SideDrawerButton');
 const { default: SideDrawer } = require('./SideDrawer');
+const WatchPartyMenu = require('./WatchPartyMenu');
+const useWatchPartyPlayer = require('./useWatchPartyPlayer');
 const usePlayer = require('./usePlayer');
 const { default: usePlayOnDevice } = require('./usePlayOnDevice');
 const { default: useKeyboardSeek } = require('./useKeyboardSeek');
@@ -83,6 +85,11 @@ const Player = () => {
     });
     const playbackDevices = React.useMemo(() => streamingServer.playbackDevices !== null && streamingServer.playbackDevices.type === 'Ready' ? streamingServer.playbackDevices.content : [], [streamingServer]);
 
+    // Observes player state and translates local timeline intents into room
+    // commands. Every intent below funnels through `handleTimelineIntent`, which
+    // returns true when the party has taken ownership of the change.
+    const watchParty = useWatchPartyPlayer({ player, video, urlParams, casting });
+
     const playerRef = React.useRef(null);
     const bufferingRef = React.useRef();
     const errorRef = React.useRef();
@@ -105,10 +112,11 @@ const Player = () => {
     const [castDevicesMenuOpen, , closeCastDevicesMenu, toggleCastDevicesMenu] = useBinaryState(false);
     const [nextVideoPopupOpen, openNextVideoPopup, closeNextVideoPopup] = useBinaryState(false);
     const [sideDrawerOpen, , closeSideDrawer, toggleSideDrawer] = useBinaryState(false);
+    const [watchPartyMenuOpen, , closeWatchPartyMenu, toggleWatchPartyMenu] = useBinaryState(false);
 
     const menusOpen = React.useMemo(() => {
-        return optionsMenuOpen || subtitlesMenuOpen || audioMenuOpen || speedMenuOpen || statisticsMenuOpen || castDevicesMenuOpen || sideDrawerOpen || nextVideoPopupOpen;
-    }, [optionsMenuOpen, subtitlesMenuOpen, audioMenuOpen, speedMenuOpen, statisticsMenuOpen, castDevicesMenuOpen, sideDrawerOpen, nextVideoPopupOpen]);
+        return optionsMenuOpen || subtitlesMenuOpen || audioMenuOpen || speedMenuOpen || statisticsMenuOpen || castDevicesMenuOpen || sideDrawerOpen || nextVideoPopupOpen || watchPartyMenuOpen;
+    }, [optionsMenuOpen, subtitlesMenuOpen, audioMenuOpen, speedMenuOpen, statisticsMenuOpen, castDevicesMenuOpen, sideDrawerOpen, nextVideoPopupOpen, watchPartyMenuOpen]);
 
     const closeMenus = React.useCallback(() => {
         closeOptionsMenu();
@@ -118,6 +126,7 @@ const Player = () => {
         closeStatisticsMenu();
         closeCastDevicesMenu();
         closeSideDrawer();
+        closeWatchPartyMenu();
     }, []);
 
     const castDevices = React.useMemo(() => {
@@ -213,6 +222,9 @@ const Player = () => {
 
     const onEnded = React.useCallback(() => {
         ended();
+        // A follower reaching the end waits for the host's media change rather
+        // than advancing on its own or leaving the player.
+        if (watchParty.controlsLocked) return;
         if (player.nextVideo !== null) {
             nextVideo();
 
@@ -221,7 +233,7 @@ const Player = () => {
         } else {
             navigate(-1);
         }
-    }, [player.nextVideo, profile.settings.bingeWatching, handleNextVideoNavigation]);
+    }, [player.nextVideo, profile.settings.bingeWatching, handleNextVideoNavigation, watchParty.controlsLocked]);
 
     const onError = React.useCallback((error) => {
         console.error('Player', error);
@@ -238,16 +250,18 @@ const Player = () => {
     }, []);
 
     const onPlayRequested = React.useCallback(() => {
+        if (watchParty.handleTimelineIntent('play')) return;
         playingOnExternalDevice.current = false;
         video.setPaused(false);
         setSeeking(false);
-    }, []);
+    }, [watchParty.handleTimelineIntent]);
 
     const onPlayRequestedDebounced = React.useCallback(debounce(onPlayRequested, 200), []);
 
     const onPauseRequested = React.useCallback(() => {
+        if (watchParty.handleTimelineIntent('pause')) return;
         video.setPaused(true);
-    }, []);
+    }, [watchParty.handleTimelineIntent]);
 
     const onPauseRequestedDebounced = React.useCallback(debounce(onPauseRequested, 200), []);
     const onMuteRequested = React.useCallback(() => {
@@ -263,9 +277,12 @@ const Player = () => {
     }, []);
 
     const commitSeek = React.useCallback((time) => {
+        // Every seek path — seek bar, keyboard, gamepad, media keys — arrives
+        // here, so this is the only place the party needs to intercept.
+        if (watchParty.handleTimelineIntent('seek', { positionMs: time })) return;
         video.setTime(time);
         seek(time, video.state.duration, video.state.manifest?.name);
-    }, [video.state.duration, video.state.manifest]);
+    }, [video.state.duration, video.state.manifest, watchParty.handleTimelineIntent]);
     const {
         time: keyboardSeekTime,
         seekBy: seekByKeyboard,
@@ -320,13 +337,16 @@ const Player = () => {
     }, [overlayHidden, video.state.manifest, video.setSubtitlesOffsetMinimum]);
 
     const onPlaybackSpeedChanged = React.useCallback((rate, skipUpdate) => {
+        // Playback rate is part of canonical room state, so a follower cannot
+        // change it locally and the host publishes it instead (plan section 12).
+        if (watchParty.handleTimelineIntent('rate', { rate })) return;
         video.setPlaybackSpeed(rate);
 
         if (skipUpdate) return;
 
         playbackSpeed.current = rate;
 
-    }, []);
+    }, [watchParty.handleTimelineIntent]);
 
     const onVideoScaleChanged = React.useCallback(() => {
         const currentScale = video.state.videoScale || 'contain';
@@ -350,6 +370,9 @@ const Player = () => {
     }, []);
 
     const onNextVideoRequested = React.useCallback(() => {
+        // Guests follow the host's media revision instead of navigating
+        // themselves; a guest that advanced alone would silently desynchronize.
+        if (watchParty.controlsLocked) return;
         if (player.nextVideo !== null) {
             cancelKeyboardSeek();
             nextVideo();
@@ -357,7 +380,7 @@ const Player = () => {
             const deepLinks = player.nextVideo.deepLinks;
             handleNextVideoNavigation(deepLinks, profile.settings.bingeWatching, false);
         }
-    }, [player.nextVideo, handleNextVideoNavigation, profile.settings, cancelKeyboardSeek]);
+    }, [player.nextVideo, handleNextVideoNavigation, profile.settings, cancelKeyboardSeek, watchParty.controlsLocked]);
 
     const onVideoClick = React.useCallback(() => {
         if (video.state.paused !== null && !longPress.current) {
@@ -393,6 +416,9 @@ const Player = () => {
         }
         if (!event.nativeEvent.castDevicesMenuClosePrevented) {
             closeCastDevicesMenu();
+        }
+        if (!event.nativeEvent.watchPartyMenuClosePrevented) {
+            closeWatchPartyMenu();
         }
 
         closeSideDrawer();
@@ -500,7 +526,9 @@ const Player = () => {
                     ...player.stream.content,
                     subtitles: streamSubtitles
                 },
-                autoplay: true,
+                // Party participants load paused: everyone starts together once
+                // the ready barrier is satisfied (plan section 12).
+                autoplay: watchParty.autoplay,
                 time: player.libraryItem !== null &&
                     player.selected.streamRequest !== null &&
                     player.selected.streamRequest.path !== null &&
@@ -1055,6 +1083,10 @@ const Player = () => {
                 onVideoScaleChanged={onVideoScaleChanged}
                 onToggleStatisticsMenu={toggleStatisticsMenu}
                 onToggleSideDrawer={toggleSideDrawer}
+                watchPartyAvailable={watchParty.available}
+                watchPartyActive={watchParty.inRoom}
+                timelineControlsLocked={watchParty.controlsLocked}
+                onToggleWatchPartyMenu={toggleWatchPartyMenu}
                 onMouseMove={onBarMouseMove}
                 onMouseOver={onBarMouseMove}
                 onTouchEnd={onContainerMouseLeave}
@@ -1129,6 +1161,21 @@ const Player = () => {
                     selectedExtraSubtitlesTrackId={selectedExtraSubtitleTrackId}
                 />
             </Transition>
+            <Transition when={watchPartyMenuOpen} name={'fade'}>
+                <div className={classnames(styles['layer'], styles['menu-layer'])}>
+                    <WatchPartyMenu watchParty={watchParty} casting={casting} />
+                </div>
+            </Transition>
+            {
+                // Shown only when the browser actually refused to play. Until the
+                // guest clicks, this client must not claim to be synchronized.
+                watchParty.inRoom && watchParty.activationRequired ?
+                    <div className={classnames(styles['layer'], styles['activation-layer'])} onClick={watchParty.markReady}>
+                        <div className={styles['activation-message']}>{t('WATCH_PARTY_ACTIVATION_REQUIRED')}</div>
+                    </div>
+                    :
+                    null
+            }
         </div>
     );
 };

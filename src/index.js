@@ -20,8 +20,11 @@ const stremioTranslations = require('stremio-translations');
 const App = require('./App');
 const { CoreProvider } = require('./core');
 const { FileDropProvider, PlatformProvider } = require('./common');
+const { withWatchPartyTranslations } = require('./services/WatchParty/translations');
 
-const translations = Object.fromEntries(Object.entries(stremioTranslations()).map(([key, value]) => [key, {
+// Watch party strings are fork-local until they are accepted upstream, so they
+// are merged over the shared bundle rather than shipped inside it.
+const translations = Object.fromEntries(Object.entries(withWatchPartyTranslations(stremioTranslations())).map(([key, value]) => [key, {
     translation: value
 }]));
 
