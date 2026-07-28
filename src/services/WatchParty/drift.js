@@ -166,27 +166,22 @@ const decideCorrection = (input) => {
         };
     }
 
-    if (buffering) {
+    if (absoluteDriftMs > HARD_SEEK_THRESHOLD_MS) {
         // Seeking a player that is already struggling makes it worse; it catches
         // up on its own once it can play again.
+        //
+        // This check lives inside the hard-seek branch on purpose. Buffering is
+        // not a reliable standalone signal — Chrome reports a playing element as
+        // below HAVE_FUTURE_DATA for some sources — so treating it as "not
+        // synchronized" on its own would permanently mark a perfectly healthy
+        // client unready. What matters is whether it has actually fallen behind.
         return {
             paused: null,
-            seekToMs: null,
+            seekToMs: buffering ? null : expected,
             rate: rateCorrection,
             driftMs,
             expectedPositionMs: expected,
-            reason: REASON.BUFFERING,
-        };
-    }
-
-    if (absoluteDriftMs > HARD_SEEK_THRESHOLD_MS) {
-        return {
-            paused: null,
-            seekToMs: expected,
-            rate: rateCorrection,
-            driftMs,
-            expectedPositionMs: expected,
-            reason: REASON.HARD_SEEK,
+            reason: buffering ? REASON.BUFFERING : REASON.HARD_SEEK,
         };
     }
 

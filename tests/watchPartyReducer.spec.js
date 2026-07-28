@@ -67,7 +67,19 @@ const snapshotPayload = (overrides = {}) => ({
     ...overrides,
 });
 
-const joined = () => reduce(initialState, message(SERVER_MESSAGE.ROOM_SNAPSHOT, snapshotPayload()));
+// A client in a room has always completed a handshake first, so the helper
+// mirrors that order: welcome, then snapshot.
+const welcomed = () => reduce(initialState, message(SERVER_MESSAGE.SESSION_WELCOME, {
+    sessionId: 's1',
+    resumed: false,
+    supported: true,
+    missingCapabilities: [],
+    requiredCapabilities: ['scheduledActions'],
+    limits: {},
+    serverTimeMs: 1000,
+}));
+
+const joined = () => reduce(welcomed(), message(SERVER_MESSAGE.ROOM_SNAPSHOT, snapshotPayload()));
 
 describe('watch party reducer: connection lifecycle', () => {
     it('distinguishes a first connection from a reconnection', () => {
@@ -106,6 +118,12 @@ describe('watch party reducer: connection lifecycle', () => {
 
     it('stops reconnecting when a close is permanent', () => {
         expect(reduce(joined(), { type: ACTION.CLOSED, permanent: true }).status).toBe(CONNECTION_STATUS.CLOSED);
+    });
+
+    it('does not claim to be reconnecting when it never connected', () => {
+        // Tearing down a client that never completed a handshake must not look
+        // like a lost connection to a service that was never reached.
+        expect(reduce(initialState, { type: ACTION.CLOSED }).status).toBe(CONNECTION_STATUS.CLOSED);
     });
 
     it('records the last error without discarding room state', () => {

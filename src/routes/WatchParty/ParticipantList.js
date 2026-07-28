@@ -21,6 +21,12 @@ const PARTICIPANT_STATUS = {
 
 // Ordered by severity: a disconnected participant is not "buffering", and an
 // unsupported one is never "ready".
+//
+// Ready deliberately outranks buffering. A browser parks a paused media element
+// with only metadata buffered, so a participant waiting at the start is both
+// ready and technically buffering; showing "Buffering" there would suggest a
+// problem that does not exist. Once playback is running a stalled participant
+// is not ready, so buffering surfaces exactly when it means something.
 const participantStatus = (participant) => {
     if (!participant.connected) {
         return PARTICIPANT_STATUS.OFFLINE;
@@ -28,11 +34,11 @@ const participantStatus = (participant) => {
     if (!participant.supported) {
         return PARTICIPANT_STATUS.UNSUPPORTED;
     }
-    if (participant.buffering) {
-        return PARTICIPANT_STATUS.BUFFERING;
-    }
     if (participant.ready) {
         return PARTICIPANT_STATUS.READY;
+    }
+    if (participant.buffering) {
+        return PARTICIPANT_STATUS.BUFFERING;
     }
     return PARTICIPANT_STATUS.LOADING;
 };

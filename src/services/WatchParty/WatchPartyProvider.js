@@ -16,7 +16,22 @@ const { expectedPositionMs } = require('./drift');
 // (plan section 2.3). The connection is opened lazily: a user who never starts
 // a party never opens a socket.
 
-const DEFAULT_DISPLAY_NAME = 'Guest';
+// Neutral on purpose: the same default is used whether this client creates the
+// room or joins one, and the host/you badges already say which is which.
+const DEFAULT_DISPLAY_NAME = 'Viewer';
+
+// Capabilities are only known once a player implementation has loaded, but the
+// handshake happens earlier than that — a guest joins from the invitation route,
+// where no player is mounted at all. Connecting with no manifest would be
+// rejected outright, so this describes the ordinary browser player and the
+// adapter corrects it (reconnecting to re-announce) the moment it knows better.
+const DEFAULT_CAPABILITIES = {
+    scheduledActions: true,
+    observeBuffering: true,
+    setPlaybackRate: true,
+    navigateNext: true,
+    playerImplementation: 'pending',
+};
 
 const randomId = () => `${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
 
@@ -33,7 +48,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
     });
 
     const clientRef = React.useRef(null);
-    const capabilitiesRef = React.useRef(null);
+    const capabilitiesRef = React.useRef(DEFAULT_CAPABILITIES);
     // Command builders need the freshest revision without being rebuilt on every
     // playback frame, which would re-register handlers throughout the player.
     const stateRef = React.useRef(state);
@@ -97,6 +112,27 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         };
     }, []);
 
+    // A reload is a disconnect like any other, and the service holds the
+    // participant open for the resume grace period. Without this, refreshing the
+    // page would silently drop the user out of a room they are still watching in.
+    // Nothing connects unless a room was actually joined, so a user who never
+    // starts a party still never opens a socket.
+    const resumeAttempted = React.useRef(false);
+    React.useEffect(() => {
+        if (resumeAttempted.current || resolvedUrl === null) {
+            return;
+        }
+        resumeAttempted.current = true;
+        const client = getClient();
+        if (client === null) {
+            return;
+        }
+        const stored = client.storage.readSession();
+        if (stored !== null && stored.roomId !== null) {
+            client.connect(capabilitiesRef.current);
+        }
+    }, [resolvedUrl, getClient]);
+
     // The service learns a client's player capabilities during the handshake, so a
     // change (switching to a cast device, loading a different implementation) has
     // to be re-announced on a fresh connection rather than patched in place.
@@ -104,7 +140,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         const previous = capabilitiesRef.current;
         capabilitiesRef.current = capabilities;
         const client = clientRef.current;
-        if (client === null || previous === null || !client.isConnected) {
+        if (client === null || !client.isConnected) {
             return;
         }
         const changed = Object.keys(capabilities).some((key) => capabilities[key] !== previous[key]);

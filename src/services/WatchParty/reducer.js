@@ -226,7 +226,12 @@ const reduce = (state, action) => {
         case ACTION.CLOSED:
             return {
                 ...state,
-                status: action.permanent === true ? CONNECTION_STATUS.CLOSED : CONNECTION_STATUS.RECONNECTING,
+                // A socket that never completed a handshake has nothing to
+                // reconnect to; saying "reconnecting" there would imply the
+                // service was reachable and then lost, which it never was.
+                status: action.permanent === true || state.session === null
+                    ? CONNECTION_STATUS.CLOSED
+                    : CONNECTION_STATUS.RECONNECTING,
                 // Participants are stale the moment the socket drops; the next
                 // snapshot restores them.
                 participants: state.participants.map((participant) =>

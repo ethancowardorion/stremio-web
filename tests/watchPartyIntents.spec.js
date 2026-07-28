@@ -88,7 +88,6 @@ describe('watch party readiness', () => {
             activated: true,
             activationRequired: false,
             loaded: true,
-            buffering: false,
             sourceCompatible: true,
             aligned: true,
             ...overrides,
@@ -104,18 +103,28 @@ describe('watch party readiness', () => {
         expect(readiness({ activated: false }).reasons).toContain('activation-required');
         expect(readiness({ activationRequired: true }).reasons).toContain('activation-required');
         expect(readiness({ loaded: false }).reasons).toContain('not-loaded');
-        expect(readiness({ buffering: true }).reasons).toContain('buffering');
         expect(readiness({ sourceCompatible: false }).reasons).toContain('source-incompatible');
         expect(readiness({ aligned: false }).reasons).toContain('not-aligned');
     });
 
     it('reports every failing condition, not just the first', () => {
-        const result = readiness({ loaded: false, buffering: true, aligned: false });
+        const result = readiness({ loaded: false, supported: false, aligned: false });
         expect(result.ready).toBe(false);
-        expect(result.reasons).toEqual(expect.arrayContaining(['not-loaded', 'buffering', 'not-aligned']));
+        expect(result.reasons).toEqual(expect.arrayContaining(['not-loaded', 'unsupported-player', 'not-aligned']));
     });
 
     it('never reports ready while the browser still needs an activation gesture', () => {
         expect(readiness({ activationRequired: true }).ready).toBe(false);
+    });
+
+    it('never gates readiness on the buffering flag', () => {
+        // Chrome reports both a paused element and, for some sources, a normally
+        // playing one as below HAVE_FUTURE_DATA, which stremio-video surfaces as
+        // buffering. Gating on it would leave a healthy client permanently
+        // unready, and since the host must be ready for playback to start, the
+        // room would deadlock. A client that has genuinely fallen behind is
+        // caught by `aligned`.
+        expect(readiness({ buffering: true })).toEqual({ ready: true, reasons: [] });
+        expect(readiness({ aligned: false }).reasons).toEqual(['not-aligned']);
     });
 });

@@ -147,10 +147,19 @@ describe('watch party correction: drift thresholds', () => {
         expect(behind.driftMs).toBe(-HARD_SEEK_THRESHOLD_MS - 1);
     });
 
-    it('never seeks a player that is still buffering', () => {
+    it('never seeks a player that is buffering and has fallen behind', () => {
         const decision = decide({ localPositionMs: 0, buffering: true });
         expect(decision.reason).toBe(REASON.BUFFERING);
         expect(decision.seekToMs).toBeNull();
+    });
+
+    it('ignores the buffering flag while drift is within tolerance', () => {
+        // Chrome reports a normally playing element as below HAVE_FUTURE_DATA for
+        // some sources, so buffering on its own says nothing about whether this
+        // client is keeping up. Only real drift does.
+        const decision = decide({ localPositionMs: 60_000, buffering: true });
+        expect(decision.reason).toBe(REASON.ALIGNED);
+        expect(isSynchronized(decision)).toBe(true);
     });
 });
 
@@ -216,7 +225,7 @@ describe('watch party synchronization reporting', () => {
         expect(isSynchronized(decision)).toBe(false);
     });
 
-    it('does not report synchronized while buffering', () => {
-        expect(isSynchronized(decide({ buffering: true, localPositionMs: 60_000 }))).toBe(false);
+    it('does not report synchronized when buffering has let it fall behind', () => {
+        expect(isSynchronized(decide({ buffering: true, localPositionMs: 0 }))).toBe(false);
     });
 });

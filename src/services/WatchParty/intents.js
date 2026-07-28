@@ -106,9 +106,16 @@ const computeReadiness = (input) => {
     if (!input.loaded) {
         reasons.push('not-loaded');
     }
-    if (input.buffering) {
-        reasons.push('buffering');
-    }
+    // Buffering is deliberately not a readiness precondition.
+    //
+    // It is a display signal, not a barrier. The readyState it derives from is
+    // unreliable — Chrome reports both a paused element and, for some sources, a
+    // normally playing one as below HAVE_FUTURE_DATA — so gating on it would
+    // leave a healthy client permanently unready and deadlock the room, since
+    // the host must be ready before playback can start. Room policy is explicit
+    // that one slow participant must not lock the room; a client that really has
+    // fallen behind is caught by `aligned` instead, and catches up through drift
+    // correction.
     if (!input.sourceCompatible) {
         reasons.push('source-incompatible');
     }

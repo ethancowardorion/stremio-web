@@ -391,6 +391,47 @@ describe('watch party player adapter: readiness', () => {
         unmount();
     });
 
+    it('becomes ready while paused even though the element reports buffering', () => {
+        // Chrome parks a paused media element below HAVE_FUTURE_DATA, which
+        // stremio-video reports as buffering. Blocking on that would deadlock
+        // the room: the barrier could never be satisfied, so nothing could start.
+        const { value } = followerValue();
+        const video = createFakeVideo({ paused: true, time: 60_000, buffering: true });
+        const { result, unmount } = renderAdapter({ watchPartyValue: value, video });
+
+        act(() => result.current.markReady());
+        expect(result.current.ready).toBe(true);
+        unmount();
+    });
+
+    it('keeps reporting ready while buffering but keeping up', () => {
+        // Chrome reports a normally playing element as below HAVE_FUTURE_DATA for
+        // some sources. Treating that alone as "not ready" would leave a healthy
+        // client permanently unready and deadlock the room.
+        const { value } = followerValue({
+            playback: createPlayback({ paused: false, effectiveAtServerMs: T0 - 1000, positionMs: 59_000 }),
+        });
+        const video = createFakeVideo({ paused: false, time: 60_000, buffering: true });
+        const { result, unmount } = renderAdapter({ watchPartyValue: value, video });
+
+        act(() => result.current.markReady());
+        expect(result.current.ready).toBe(true);
+        unmount();
+    });
+
+    it('stops reporting ready once a stall has let it fall behind', () => {
+        const { value } = followerValue({
+            playback: createPlayback({ paused: false, effectiveAtServerMs: T0 - 1000, positionMs: 59_000 }),
+        });
+        const video = createFakeVideo({ paused: false, time: 10_000, buffering: true });
+        const { result, unmount } = renderAdapter({ watchPartyValue: value, video });
+
+        act(() => result.current.markReady());
+        expect(result.current.ready).toBe(false);
+        expect(result.current.readinessReasons).toContain('not-aligned');
+        unmount();
+    });
+
     it('refuses to claim readiness on an unsupported player', () => {
         const { value } = followerValue({ session: { supported: false, missingCapabilities: ['scheduledActions'] } });
         const video = createFakeVideo({ paused: true, time: 60_000 });

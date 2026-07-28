@@ -273,10 +273,9 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         activated,
         activationRequired,
         loaded: video.state.loaded === true,
-        buffering: video.state.buffering === true,
         sourceCompatible: sourceCompatibility.compatible,
         aligned,
-    }), [inRoom, supported, activated, activationRequired, video.state.loaded, video.state.buffering, sourceCompatibility.compatible, aligned]);
+    }), [inRoom, supported, activated, activationRequired, video.state.loaded, sourceCompatibility.compatible, aligned]);
     const ready = readiness.ready;
 
     // Dropping a connection resets this participant's readiness on the service,
