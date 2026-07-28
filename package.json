@@ -13,6 +13,12 @@
         "lint": "eslint src",
         "scan-translations": "pnpx jest ./tests/i18nScan.test.js"
     },
+    "jest": {
+        "testPathIgnorePatterns": [
+            "/node_modules/",
+            "<rootDir>/watch-party-server/"
+        ]
+    },
     "engines": {
         "node": ">=22",
         "pnpm": ">=11"
