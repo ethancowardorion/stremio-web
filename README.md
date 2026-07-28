@@ -27,6 +27,16 @@
 - 🌍 **50+ languages** — community-translated via [stremio-translations](https://github.com/Stremio/stremio-translations)
 - 📱 **Installable** — runs as a standalone PWA
 
+## 👥 Watch parties (fork addition)
+
+This fork adds host-authoritative watch parties: several people stay synchronized
+while each of them independently retrieves and plays the media through their own
+addons and streaming server. No video passes through any shared server.
+
+It needs the companion room service in [`watch-party-server/`](/watch-party-server).
+See [`docs/watch-party.md`](/docs/watch-party.md) for the architecture, the
+authority model, deployment, and an honest list of what is not validated yet.
+
 ## 📸 Screenshots
 
 | Discover | Meta Details |
