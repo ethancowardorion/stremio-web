@@ -47,6 +47,13 @@ const ACTIVATION_TIMEOUT_MS = 1200;
 
 const READINESS_INTERVAL_MS = 1000;
 
+// A seek is treated as landed once observed time is this close to the target.
+const SEEK_SETTLE_TOLERANCE_MS = 500;
+
+// ...or after this long, so a seek the player silently ignored cannot wedge
+// correction permanently.
+const SEEK_SETTLE_TIMEOUT_MS = 2000;
+
 const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     const watchParty = useWatchParty();
     const navigate = useNavigate();
@@ -63,10 +70,39 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     // be rebuilt on every frame of playback.
     const videoStateRef = React.useRef(video.state);
     videoStateRef.current = video.state;
+    // `useVideo()` builds a new object every render, so the setters are reached
+    // through a ref rather than captured in dependency arrays.
+    const videoRef = React.useRef(video);
+    videoRef.current = video;
     const watchPartyRef = React.useRef(watchParty);
     watchPartyRef.current = watchParty;
 
     const playRequestedAtRef = React.useRef(null);
+    // The seek most recently handed to the player, so a correction is not
+    // reissued before the element has had a chance to land on it.
+    const pendingSeekRef = React.useRef(null);
+
+    // True while a previously issued seek has neither landed nor timed out.
+    const isSeekSettling = React.useCallback((forceAlign, observedPositionMs, targetMs) => {
+        const pending = pendingSeekRef.current;
+        if (pending === null) {
+            return false;
+        }
+        const landed = typeof observedPositionMs === 'number' &&
+            Math.abs(observedPositionMs - pending.targetMs) <= SEEK_SETTLE_TOLERANCE_MS;
+        if (landed || Date.now() - pending.atMs > SEEK_SETTLE_TIMEOUT_MS) {
+            pendingSeekRef.current = null;
+            return false;
+        }
+        if (Math.abs(targetMs - pending.targetMs) <= SEEK_SETTLE_TOLERANCE_MS) {
+            // The same target is already in flight; sending it again achieves
+            // nothing and only restarts buffering.
+            return true;
+        }
+        // A media change or reconnect must still be able to move the player to a
+        // genuinely different position immediately; routine correction waits.
+        return !forceAlign;
+    }, []);
     const lastReadinessRef = React.useRef(null);
     const publishedFingerprintRef = React.useRef(null);
 
@@ -126,9 +162,14 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
 
     // Applies canonical room state through the direct player setters. This path
     // never publishes a command, so a correction cannot echo back as a new one.
+    // Deliberately has no dependencies. `useVideo()` returns a fresh object on
+    // every render, so depending on it would give this callback a new identity
+    // several times a second — and any effect depending on *it* would re-run
+    // just as often. Everything it needs is read through refs instead.
     const applyCanonicalState = React.useCallback((options) => {
         const current = watchPartyRef.current;
         const state = videoStateRef.current;
+        const player = videoRef.current;
         if (!current.inRoom || current.playback === null || state.loaded !== true) {
             return;
         }
@@ -136,6 +177,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         if (serverNowMs === null) {
             return;
         }
+        const forceAlign = options !== undefined && options.forceAlign === true;
 
         const decision = decideCorrection({
             playback: current.playback,
@@ -145,17 +187,23 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             localRate: state.playbackSpeed,
             durationMs: state.duration,
             buffering: state.buffering === true,
-            forceAlign: options !== undefined && options.forceAlign === true,
+            forceAlign,
             canSetRate: state.playbackSpeed !== null,
         });
 
         setDriftMs(decision.driftMs);
 
-        if (decision.seekToMs !== null) {
-            video.setTime(decision.seekToMs);
+        if (decision.seekToMs !== null && !isSeekSettling(forceAlign, state.time, decision.seekToMs)) {
+            // Observed time lags the element by up to a `timeupdate` interval, so
+            // a fresh correction computed immediately after a seek would still see
+            // the old position and seek again. Left unchecked that becomes a seek
+            // storm: the element restarts buffering each time and never plays a
+            // run of frames.
+            pendingSeekRef.current = { targetMs: decision.seekToMs, atMs: Date.now() };
+            player.setTime(decision.seekToMs);
         }
         if (decision.rate !== null && state.playbackSpeed !== null) {
-            video.setPlaybackSpeed(decision.rate);
+            player.setPlaybackSpeed(decision.rate);
         }
         if (decision.paused !== null) {
             if (decision.paused === false) {
@@ -165,9 +213,9 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             } else {
                 playRequestedAtRef.current = null;
             }
-            video.setPaused(decision.paused);
+            player.setPaused(decision.paused);
         }
-    }, [video]);
+    }, []);
 
     // Re-evaluate on a fixed tick as well as whenever canonical state changes: the
     // tick catches natural drift, the state change catches commands.
@@ -200,12 +248,17 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
 
     // Hard align after a (re)connection or a media load, before this client is
     // allowed to report itself as synchronized.
+    //
+    // The dependencies here are exactly the transitions that justify a forced
+    // seek. `applyCanonicalState` is deliberately absent: it is stable now, and
+    // listing an unstable callback here is what previously turned this into a
+    // seek on every render.
     React.useEffect(() => {
         if (!inRoom || video.state.loaded !== true) {
             return;
         }
         applyCanonicalState({ forceAlign: true });
-    }, [inRoom, video.state.loaded, video.state.stream, watchParty.mediaRevision, applyCanonicalState]);
+    }, [inRoom, video.state.loaded, video.state.stream, watchParty.mediaRevision]);
 
     // ------------------------------------------------------------- activation
 

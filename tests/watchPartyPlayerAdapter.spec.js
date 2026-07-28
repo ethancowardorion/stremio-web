@@ -123,10 +123,14 @@ const createWatchPartyValue = (overrides = {}) => {
 
 const renderAdapter = ({ watchPartyValue, video, player, urlParams, casting }) => {
     const result = { current: null };
+    let renderCount = 0;
     const Probe = () => {
+        renderCount += 1;
         result.current = useWatchPartyPlayer({
             player: player || { selected: { stream: video.state.stream }, title: 'Pilot', nextVideo: null },
-            video,
+            // A fresh object every render, exactly as `useVideo()` produces. The
+            // adapter must not treat that as a reason to do anything.
+            video: { ...video },
             urlParams: urlParams || HOST_URL_PARAMS,
             casting: casting === true,
         });
@@ -144,8 +148,27 @@ const renderAdapter = ({ watchPartyValue, video, player, urlParams, casting }) =
             )
         );
     });
+    const render = () =>
+        root.render(
+            React.createElement(
+                MemoryRouter,
+                { future: { v7_startTransition: true, v7_relativeSplatPath: true } },
+                React.createElement(WatchPartyContext.Provider, { value: watchPartyValue }, React.createElement(Probe))
+            )
+        );
+
     return {
         result,
+        get renderCount() {
+            return renderCount;
+        },
+        // Stands in for the renders the player produces naturally, several times
+        // a second, as observed time advances.
+        rerender(times = 1) {
+            for (let index = 0; index < times; index += 1) {
+                act(render);
+            }
+        },
         unmount() {
             act(() => root.unmount());
             container.remove();
@@ -303,21 +326,74 @@ describe('watch party player adapter: applying canonical state', () => {
         unmount();
     });
 
-    it('aligns once on load and then leaves an aligned follower alone', () => {
+    it('does not seek on load when the player is already in position', () => {
         jest.useFakeTimers();
         try {
             const { value } = followerValue({ paused: true, positionMs: 60_100 });
             const video = createFakeVideo({ paused: true, time: 60_000 });
             const { unmount } = renderAdapter({ watchPartyValue: value, video });
 
-            // A media load always hard aligns before this client may claim to be
-            // synchronized, so exactly one seek is expected.
-            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([['setTime', 60_100]]);
-
+            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([]);
             act(() => jest.advanceTimersByTime(2000));
-            // Inside the deadband afterwards: no oscillation, no repeated seeking.
-            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([['setTime', 60_100]]);
+            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([]);
             expect(video.calls.filter(([name]) => name === 'setPaused')).toEqual([]);
+            unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('aligns exactly once on load when the player is out of position', () => {
+        jest.useFakeTimers();
+        try {
+            const { value } = followerValue({ paused: true, positionMs: 120_000 });
+            const video = createFakeVideo({ paused: true, time: 60_000 });
+            const { unmount } = renderAdapter({ watchPartyValue: value, video });
+
+            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([['setTime', 120_000]]);
+            act(() => jest.advanceTimersByTime(2000));
+            // Having landed, it settles: no oscillation, no repeated seeking.
+            expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([['setTime', 120_000]]);
+            unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('does not re-seek just because the player re-rendered', () => {
+        // `useVideo()` returns a new object on every render, and the player
+        // renders several times a second as observed time advances. Treating
+        // that as a transition worth realigning turns correction into a seek
+        // storm: the element restarts buffering on each seek and never plays a
+        // run of frames, which looks like the video jumping between stills.
+        const { value } = followerValue({ paused: true, positionMs: 120_000 });
+        const video = createFakeVideo({ paused: true, time: 60_000 });
+        const { rerender, unmount } = renderAdapter({ watchPartyValue: value, video });
+
+        const seeksAfterLoad = video.calls.filter(([name]) => name === 'setTime').length;
+        expect(seeksAfterLoad).toBe(1);
+
+        rerender(12);
+        expect(video.calls.filter(([name]) => name === 'setTime')).toHaveLength(seeksAfterLoad);
+        unmount();
+    });
+
+    it('does not reissue a seek before the previous one has landed', () => {
+        jest.useFakeTimers();
+        try {
+            // Observed time lags the element, so a correction computed straight
+            // after a seek still sees the old position.
+            const { value } = followerValue({ paused: false, effectiveAtServerMs: T0 - 60_000, positionMs: 0 });
+            const video = createFakeVideo({ paused: false, time: 0 });
+            // A player that ignores setTime entirely is the worst case.
+            video.setTime = (v) => video.calls.push(['setTime', v]);
+            const { unmount } = renderAdapter({ watchPartyValue: value, video });
+
+            act(() => jest.advanceTimersByTime(1500));
+            const seeks = video.calls.filter(([name]) => name === 'setTime').length;
+            // One on load, and at most one more once the settle window expires —
+            // not one per 250 ms correction tick.
+            expect(seeks).toBeLessThanOrEqual(2);
             unmount();
         } finally {
             jest.useRealTimers();

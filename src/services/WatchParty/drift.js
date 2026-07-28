@@ -122,12 +122,15 @@ const decideCorrection = (input) => {
     const expected = expectedPositionMs(playback, serverNowMs, durationMs);
     const driftMs = typeof localPositionMs === 'number' ? localPositionMs - expected : null;
 
-    // A reconnect or a fresh media load always hard aligns before the client is
-    // allowed to claim it is synchronized.
+    // A reconnect or a fresh media load hard aligns before the client is allowed
+    // to claim it is synchronized — but only if it is not already there. Seeking
+    // a correctly positioned player restarts its buffering for no benefit, and
+    // doing that repeatedly is what makes playback stutter.
     if (forceAlign) {
+        const needsSeek = driftMs === null || Math.abs(driftMs) > PAUSED_ALIGN_THRESHOLD_MS;
         return {
             paused: localPaused !== playback.paused ? playback.paused : null,
-            seekToMs: expected,
+            seekToMs: needsSeek ? expected : null,
             rate: rateCorrection,
             driftMs,
             expectedPositionMs: expected,

@@ -84,10 +84,18 @@ describe('watch party correction: preconditions', () => {
         expect(decision.seekToMs).toBeNull();
     });
 
-    it('hard aligns on a forced align regardless of how small the drift is', () => {
+    it('hard aligns on a forced align when the player is out of position', () => {
         const decision = decide({ forceAlign: true, localPositionMs: 60_010, serverNowMs: T0 + 10_000 });
         expect(decision.reason).toBe(REASON.FORCED_ALIGN);
         expect(decision.seekToMs).toBe(70_000);
+    });
+
+    it('does not seek on a forced align when already in position', () => {
+        // Seeking a correctly positioned player restarts its buffering for no
+        // benefit; repeating that is what makes playback stutter.
+        const decision = decide({ forceAlign: true, localPositionMs: 70_100, serverNowMs: T0 + 10_000 });
+        expect(decision.reason).toBe(REASON.FORCED_ALIGN);
+        expect(decision.seekToMs).toBeNull();
     });
 });
 
