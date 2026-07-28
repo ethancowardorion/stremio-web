@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROTOCOL_VERSION } from '../src/protocol/types.ts';
-import { TestClient, capabilities, sampleSource, startHarness } from './helpers/harness.ts';
+import { TestClient, capabilities, sampleObservation, sampleSource, startHarness } from './helpers/harness.ts';
 
 /**
  * End-to-end authority and hardening checks against a real in-process
@@ -208,7 +208,7 @@ test('room.reset: only the host can return every client to a clean paused snapsh
     const { harness, host, guest } = await setUpStartedRoom();
     t.after(() => harness.stop());
 
-    const guestError = await guest.request('room.reset', {});
+    const guestError = await guest.request('room.reset', { observation: sampleObservation({ positionMs: 1_000 }) });
     assert.equal(guestError.payload.code, 'NOT_HOST');
 
     host.send('playback.command', {
@@ -228,7 +228,7 @@ test('room.reset: only the host can return every client to a clean paused snapsh
     );
     harness.clock.advance(5_000);
 
-    host.send('room.reset', {});
+    host.send('room.reset', { observation: sampleObservation({ positionMs: 1_200 }) });
     const hostReset = await host.waitFor(
         (envelope) => envelope.type === 'room.snapshot' && envelope.payload.reset === true,
     );
@@ -243,7 +243,9 @@ test('room.reset: only the host can return every client to a clean paused snapsh
     };
     assert.equal(room.mediaRevision, 1);
     assert.equal(room.playback.paused, true);
-    assert.equal(room.playback.positionMs, 5_000);
+    // Canonical had projected to 5 seconds, but reset must anchor to the host's
+    // actual observation so it does not seek the host into another loading state.
+    assert.equal(room.playback.positionMs, 1_200);
     assert.equal(room.participants.every((participant) =>
         !participant.ready && !participant.loaded && !participant.buffering), true);
     assert.equal(hostReset.payload.selfParticipantId, host.participantId);

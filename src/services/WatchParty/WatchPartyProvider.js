@@ -271,12 +271,21 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         }
     }, []);
 
-    const resetRoom = React.useCallback(() => {
+    const resetRoom = React.useCallback((input) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected || stateRef.current.room === null) {
             return null;
         }
-        return client.send(CLIENT_MESSAGE.ROOM_RESET, {});
+        return client.send(CLIENT_MESSAGE.ROOM_RESET, {
+            observation: {
+                positionMs: Math.max(0, Math.round(input.positionMs)),
+                paused: true,
+                rate: typeof input.rate === 'number' && input.rate > 0 ? input.rate : 1,
+                buffering: input.buffering === true,
+                durationMs: typeof input.durationMs === 'number' ? Math.round(input.durationMs) : null,
+                mediaRevision: input.mediaRevision,
+            },
+        });
     }, []);
 
     const updatePolicy = React.useCallback((policy) => {

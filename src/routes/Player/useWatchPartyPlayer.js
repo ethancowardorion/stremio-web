@@ -528,6 +528,17 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         watchParty.actions.refreshSource(localSourceBundle);
     }, [localSourceBundle, watchParty.actions]);
 
+    const resetRoom = React.useCallback(() => {
+        const state = videoStateRef.current;
+        return watchPartyRef.current.actions.resetRoom({
+            positionMs: typeof state.time === 'number' ? state.time : 0,
+            rate: typeof state.playbackSpeed === 'number' ? state.playbackSpeed : 1,
+            buffering: state.buffering === true,
+            durationMs: typeof state.duration === 'number' ? state.duration : null,
+            mediaRevision: watchPartyRef.current.mediaRevision,
+        });
+    }, []);
+
     return {
         available: watchParty.available,
         inRoom,
@@ -567,7 +578,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         refreshSource,
         leave: watchParty.actions.leave,
         closeRoom: watchParty.actions.closeRoom,
-        resetRoom: watchParty.actions.resetRoom,
+        resetRoom,
         updatePolicy: watchParty.actions.updatePolicy,
         retryConnection: watchParty.actions.retryConnection,
     };

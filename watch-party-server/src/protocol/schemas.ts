@@ -149,7 +149,9 @@ export const createClientMessageSchemas = (options: ClientMessageSchemaOptions) 
         }),
         'room.leave': object({}),
         'room.close': object({}),
-        'room.reset': object({}),
+        'room.reset': object({
+            observation: observation(),
+        }),
         'room.policy.update': object({
             policy: policy(),
         }),

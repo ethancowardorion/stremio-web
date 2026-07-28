@@ -85,6 +85,7 @@ const createWatchPartyValue = (overrides = {}) => {
     const mediaChanges = [];
     const capabilities = [];
     const policies = [];
+    const resets = [];
     const value = {
         available: true,
         inRoom: false,
@@ -117,12 +118,12 @@ const createWatchPartyValue = (overrides = {}) => {
             createRoom: () => Promise.resolve({}),
             leave: () => undefined,
             closeRoom: () => undefined,
-            resetRoom: () => undefined,
+            resetRoom: (next) => resets.push(next),
             retryConnection: () => undefined,
         },
         ...overrides,
     };
-    return { value, commands, readiness, observations, mediaChanges, capabilities, policies };
+    return { value, commands, readiness, observations, mediaChanges, capabilities, policies, resets };
 };
 
 const renderAdapter = ({ watchPartyValue, video, player, urlParams, casting }) => {
@@ -267,6 +268,27 @@ describe('watch party player adapter: host authority', () => {
         act(() => result.current.updatePolicy({ allowGuestPlayPause: true }));
 
         expect(policies).toEqual([{ allowGuestPlayPause: true }]);
+        unmount();
+    });
+
+    it('anchors a room reset to the host player observation', () => {
+        const { value, resets } = hostValue();
+        const video = createFakeVideo({ buffering: true });
+        const { result, unmount } = renderAdapter({ watchPartyValue: value, video });
+        // The canonical application on mount may align these fields first; the
+        // reset click must use the freshest observed values after that.
+        video.state.time = 42_500;
+        video.state.playbackSpeed = 1.25;
+
+        act(() => result.current.resetRoom());
+
+        expect(resets).toEqual([{
+            positionMs: 42_500,
+            rate: 1.25,
+            buffering: true,
+            durationMs: DURATION_MS,
+            mediaRevision: 1,
+        }]);
         unmount();
     });
 });

@@ -439,11 +439,31 @@ export class Room {
      * Returns the room to the same paused, unready state used for a clean join,
      * while preserving the current media, source, participants and position.
      */
-    reset(participantId: string, nowMs: number): void {
+    reset(
+        participantId: string,
+        observation: { positionMs: number; rate: number; durationMs: number | null; mediaRevision: number },
+        nowMs: number,
+    ): void {
         if (participantId !== this.hostParticipantId) {
             throw new ProtocolError('NOT_HOST', 'only the host can reset the room');
         }
-        this.playback = freezePlayback(this.playback, nowMs, this.durationMs);
+        if (observation.mediaRevision !== this.mediaRevision) {
+            throw new ProtocolError('STALE_MEDIA_REVISION', 'reset observation targets a different media revision', {
+                details: { expected: this.mediaRevision, received: observation.mediaRevision },
+            });
+        }
+        // Reset around what the host has actually loaded, not the server's
+        // projected position. The projection may be ahead after a stall; seeking
+        // the host there is precisely the bad state reset is meant to escape.
+        this.playback = {
+            ...resetPlaybackForMedia(this.playback, {
+                nowMs,
+                mediaRevision: this.mediaRevision,
+                positionMs: observation.positionMs,
+                durationMs: observation.durationMs,
+            }),
+            rate: observation.rate,
+        };
         this.lastServerInitiatedRevision = this.playback.revision;
         this.hasStartedCurrentMedia = false;
         this.pauseReason = null;

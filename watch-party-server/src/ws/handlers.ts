@@ -186,7 +186,11 @@ export class WatchPartyService {
                 this.handleRoomClose(session);
                 return;
             case 'room.reset':
-                this.handleRoomReset(session, nowMs);
+                this.handleRoomReset(
+                    session,
+                    validateClientMessage(this.schemas, type, envelope.payload),
+                    nowMs,
+                );
                 return;
             case 'room.policy.update':
                 this.handleRoomPolicyUpdate(
@@ -460,9 +464,13 @@ export class WatchPartyService {
         this.closeRoom(room, 'host_ended');
     }
 
-    private handleRoomReset(session: SessionRecord, nowMs: number): void {
+    private handleRoomReset(
+        session: SessionRecord,
+        payload: ClientMessagePayload<'room.reset'>,
+        nowMs: number,
+    ): void {
         const { room, participantId } = this.requireRoomMembership(session);
-        room.reset(participantId, nowMs);
+        room.reset(participantId, payload.observation, nowMs);
         // A snapshot deliberately replaces all derived client state. It also
         // carries each recipient's own id, unlike an ordinary broadcast.
         for (const record of this.sessions.listForRoom(room.roomId)) {
