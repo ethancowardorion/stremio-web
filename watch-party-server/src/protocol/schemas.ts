@@ -99,6 +99,7 @@ const observation = () =>
 const policy = () =>
     object({
         // Optional so a client may send a subset; the room fills in defaults.
+        allowGuestPlayPause: optional(boolean()),
         requireAllReadyToStart: optional(boolean()),
         pauseOnGuestBuffering: optional(boolean()),
         pauseOnHostStall: optional(boolean()),
@@ -148,6 +149,9 @@ export const createClientMessageSchemas = (options: ClientMessageSchemaOptions) 
         }),
         'room.leave': object({}),
         'room.close': object({}),
+        'room.policy.update': object({
+            policy: policy(),
+        }),
         'participant.ready': object({
             ready: boolean(),
             loaded: boolean(),

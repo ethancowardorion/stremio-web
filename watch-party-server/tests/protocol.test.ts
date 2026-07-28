@@ -94,6 +94,13 @@ test('schemas: a valid room.create passes and normalizes the display name', () =
     assert.equal(payload.source.kind, 'torrent');
 });
 
+test('schemas: a room policy update accepts the guest control setting', () => {
+    const payload = validateClientMessage(schemas, 'room.policy.update', {
+        policy: { allowGuestPlayPause: true },
+    });
+    assert.deepEqual(payload, { policy: { allowGuestPlayPause: true } });
+});
+
 test('schemas: room.create defaults an omitted device label to null', () => {
     const payload = validateClientMessage(schemas, 'room.create', {
         displayName: 'Host',

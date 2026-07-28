@@ -22,8 +22,8 @@ const {
 //
 // The two directions are deliberately separate APIs (plan section 9.4):
 //
-//   handleTimelineIntent -> authority check -> host publishes a command,
-//                                              guest is blocked
+//   handleTimelineIntent -> authority check -> host publishes any command,
+//                                              permitted guests publish play/pause
 //   applyCanonicalState  -> direct video setters, never publishes anything
 //
 // Nothing here reads or writes the DOM media element; every observation and
@@ -430,6 +430,8 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         const decision = routeTimelineIntent({
             inRoom: current.inRoom,
             isHost: current.isHost,
+            allowGuestPlayPause: current.room !== null &&
+                current.room.policy.allowGuestPlayPause === true,
             action,
             options,
             videoState: videoStateRef.current,
@@ -531,9 +533,11 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         // Party participants must never autoplay: everyone loads paused and
         // starts together once the ready barrier is satisfied.
         autoplay: !inRoom,
-        // Guests see disabled timeline controls rather than controls that
-        // silently do nothing.
+        // Guest seek/rate/next controls stay locked. Play/pause has a separate
+        // lock because the host can grant that narrower permission.
         controlsLocked: isFollower,
+        playPauseControlsLocked: isFollower &&
+            !(watchParty.room !== null && watchParty.room.policy.allowGuestPlayPause === true),
         ready,
         // Why this client is not ready, for diagnostics and interface copy.
         readinessReasons: readiness.reasons,
@@ -559,6 +563,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         refreshSource,
         leave: watchParty.actions.leave,
         closeRoom: watchParty.actions.closeRoom,
+        updatePolicy: watchParty.actions.updatePolicy,
         retryConnection: watchParty.actions.retryConnection,
     };
 };

@@ -1082,6 +1082,7 @@ const Player = () => {
                 watchPartyAvailable={watchParty.available}
                 watchPartyActive={watchParty.inRoom}
                 timelineControlsLocked={watchParty.controlsLocked}
+                playPauseControlsLocked={watchParty.playPauseControlsLocked}
                 onToggleWatchPartyMenu={toggleWatchPartyMenu}
                 onMouseMove={onBarMouseMove}
                 onMouseOver={onBarMouseMove}

@@ -31,6 +31,23 @@ describe('watch party timeline intents: authority', () => {
         });
     });
 
+    it('lets an authorized guest publish only play and pause', () => {
+        const play = route({ isHost: false, allowGuestPlayPause: true, action: 'play' });
+        const pause = route({ isHost: false, allowGuestPlayPause: true, action: 'pause' });
+        expect(play).toEqual({
+            outcome: OUTCOME.PUBLISH,
+            handled: true,
+            command: { action: 'play', options: {} },
+        });
+        expect(pause.command).toEqual({ action: 'pause', options: { positionMs: 60_000 } });
+
+        ['seek', 'rate'].forEach((action) => {
+            const decision = route({ isHost: false, allowGuestPlayPause: true, action, options: { positionMs: 1000, rate: 2 } });
+            expect(decision.outcome).toBe(OUTCOME.BLOCKED);
+            expect(decision.command).toBeNull();
+        });
+    });
+
     it('takes ownership of the host intent instead of applying it locally', () => {
         // The host follows canonical state like everyone else, so it starts at the
         // same scheduled instant rather than a lead time early.

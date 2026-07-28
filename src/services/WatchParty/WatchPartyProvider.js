@@ -271,6 +271,14 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         }
     }, []);
 
+    const updatePolicy = React.useCallback((policy) => {
+        const client = clientRef.current;
+        if (client === null || !client.isConnected || stateRef.current.room === null) {
+            return null;
+        }
+        return client.send(CLIENT_MESSAGE.ROOM_POLICY_UPDATE, { policy });
+    }, []);
+
     const setReady = React.useCallback((input) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected) {
@@ -301,8 +309,8 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         });
     }, []);
 
-    // Host-only. Guests never reach this path: the player adapter blocks their
-    // intents before they become commands, and the service rejects them anyway.
+    // Hosts may publish every timeline action. Guests reach this path only for
+    // play/pause when the room policy allows it; the service remains authoritative.
     const sendCommand = React.useCallback((action, options) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected) {
@@ -427,6 +435,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
             joinRoom,
             leave,
             closeRoom,
+            updatePolicy,
             setReady,
             observe,
             sendCommand,
@@ -453,6 +462,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         joinRoom,
         leave,
         closeRoom,
+        updatePolicy,
         setReady,
         observe,
         sendCommand,

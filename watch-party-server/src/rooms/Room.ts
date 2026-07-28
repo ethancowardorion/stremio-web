@@ -366,12 +366,16 @@ export class Room {
     }
 
     applyHostCommand(participantId: string, command: PlaybackCommand, nowMs: number): ApplyCommandResult {
-        if (participantId !== this.hostParticipantId) {
-            throw new ProtocolError('NOT_HOST', 'only the host can change playback');
+        const participant = this.requireParticipant(participantId);
+        const isHost = participantId === this.hostParticipantId;
+        const guestActionAllowed =
+            this.policy.allowGuestPlayPause &&
+            (command.action === 'play' || command.action === 'pause');
+        if (!isHost && !guestActionAllowed) {
+            throw new ProtocolError('NOT_HOST', 'only the host can perform this playback action');
         }
-        const host = this.requireParticipant(participantId);
-        if (!host.supported) {
-            throw new ProtocolError('CAPABILITY_REQUIRED', 'host client lacks a required capability');
+        if (!participant.supported) {
+            throw new ProtocolError('CAPABILITY_REQUIRED', 'client lacks a required capability');
         }
         // Staleness is checked before the readiness barrier: a command aimed at
         // a previous episode should be reported as stale, not as "not ready",
@@ -388,7 +392,18 @@ export class Room {
             throw new ProtocolError('READINESS_BARRIER', 'the room readiness barrier has not been satisfied');
         }
 
-        const result = applyPlaybackCommand(this.playback, command, {
+        // A guest is allowed to request the transition, not choose its position
+        // or scheduling. Otherwise a crafted pause/play command could smuggle in
+        // a seek or an arbitrary lead time.
+        const authorizedCommand = isHost
+            ? command
+            : {
+                commandId: command.commandId,
+                action: command.action,
+                expectedRevision: command.expectedRevision,
+                mediaRevision: command.mediaRevision,
+            };
+        const result = applyPlaybackCommand(this.playback, authorizedCommand, {
             nowMs,
             durationMs: this.durationMs,
             defaultLeadMs: this.options.defaultLeadMs,
@@ -409,6 +424,15 @@ export class Room {
             this.touch(nowMs);
         }
         return result;
+    }
+
+    updatePolicy(participantId: string, policy: Partial<RoomPolicy>, nowMs: number): RoomPolicy {
+        if (participantId !== this.hostParticipantId) {
+            throw new ProtocolError('NOT_HOST', 'only the host can change room settings');
+        }
+        this.policy = normalizeRoomPolicy({ ...this.policy, ...policy });
+        this.touch(nowMs);
+        return this.policy;
     }
 
     /**

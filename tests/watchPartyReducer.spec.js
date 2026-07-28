@@ -59,7 +59,7 @@ const snapshotPayload = (overrides = {}) => ({
         source: { fingerprint: 'torrent:abc:0', streamParam: 'encoded' },
         playback: playback(),
         participants: [participant()],
-        policy: { requireAllReadyToStart: true, pauseOnGuestBuffering: false },
+        policy: { allowGuestPlayPause: false, requireAllReadyToStart: true, pauseOnGuestBuffering: false },
         serverTimeMs: 1000,
         ...overrides.room,
     },
@@ -170,6 +170,18 @@ describe('watch party reducer: room state', () => {
         expect(selectIsFollower(guestState)).toBe(true);
         expect(selectHost(guestState).participantId).toBe('p-host');
         expect(selectSelf(guestState).displayName).toBe('Guest');
+    });
+
+    it('applies a live room policy update', () => {
+        const updated = reduce(joined(), message(SERVER_MESSAGE.ROOM_UPDATED, {
+            policy: {
+                allowGuestPlayPause: true,
+                requireAllReadyToStart: true,
+                pauseOnGuestBuffering: false,
+                pauseOnHostStall: true,
+            },
+        }));
+        expect(updated.room.policy.allowGuestPlayPause).toBe(true);
     });
 
     it('upserts participants rather than duplicating them', () => {

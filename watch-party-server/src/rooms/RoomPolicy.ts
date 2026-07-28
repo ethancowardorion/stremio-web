@@ -10,12 +10,14 @@ import { REQUIRED_CAPABILITIES, type PlayerCapabilities, type RoomPolicy } from 
  * misses content. Clients debounce short buffering blips before reporting them.
  */
 export const DEFAULT_ROOM_POLICY: RoomPolicy = {
+    allowGuestPlayPause: false,
     requireAllReadyToStart: true,
     pauseOnGuestBuffering: true,
     pauseOnHostStall: true,
 };
 
 export const normalizeRoomPolicy = (policy: Partial<RoomPolicy> | undefined): RoomPolicy => ({
+    allowGuestPlayPause: policy?.allowGuestPlayPause ?? DEFAULT_ROOM_POLICY.allowGuestPlayPause,
     requireAllReadyToStart: policy?.requireAllReadyToStart ?? DEFAULT_ROOM_POLICY.requireAllReadyToStart,
     pauseOnGuestBuffering: policy?.pauseOnGuestBuffering ?? DEFAULT_ROOM_POLICY.pauseOnGuestBuffering,
     pauseOnHostStall: policy?.pauseOnHostStall ?? DEFAULT_ROOM_POLICY.pauseOnHostStall,

@@ -12,6 +12,7 @@ const CLIENT_MESSAGE = {
     ROOM_JOIN: 'room.join',
     ROOM_LEAVE: 'room.leave',
     ROOM_CLOSE: 'room.close',
+    ROOM_POLICY_UPDATE: 'room.policy.update',
     PARTICIPANT_READY: 'participant.ready',
     PLAYBACK_COMMAND: 'playback.command',
     PLAYBACK_OBSERVATION: 'playback.observation',

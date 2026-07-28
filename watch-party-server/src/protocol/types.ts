@@ -101,6 +101,8 @@ export type PlaybackState = {
 };
 
 export type RoomPolicy = {
+    /** Whether guests may publish play and pause commands. */
+    allowGuestPlayPause: boolean;
     /** Whether the first start waits for every guest, or only for the host. */
     requireAllReadyToStart: boolean;
     /** Whether sustained buffering by a supported guest freezes the room. */
@@ -177,6 +179,7 @@ export const CLIENT_MESSAGE_TYPES = [
     'room.join',
     'room.leave',
     'room.close',
+    'room.policy.update',
     'participant.ready',
     'playback.command',
     'playback.observation',

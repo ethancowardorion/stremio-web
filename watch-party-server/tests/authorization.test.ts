@@ -126,6 +126,84 @@ test('authority: a guest cannot change playback by crafting a raw command', asyn
     assert.equal(harness.server.service.rooms.get(host.roomId as string)?.playback.revision, before);
 });
 
+test('authority: the host can grant and revoke guest play/pause only', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    host.send('room.policy.update', { policy: { allowGuestPlayPause: true } });
+    const hostUpdate = await host.waitFor('room.updated');
+    const guestUpdate = await guest.waitFor('room.updated');
+    assert.equal((hostUpdate.payload.policy as { allowGuestPlayPause: boolean }).allowGuestPlayPause, true);
+    assert.deepEqual(guestUpdate.payload.policy, hostUpdate.payload.policy);
+
+    guest.send('playback.command', {
+        commandId: 'guest-play',
+        action: 'play',
+        expectedRevision: 1,
+        mediaRevision: 1,
+    });
+    const playing = await host.waitFor(
+        (envelope) => envelope.type === 'playback.state' &&
+            (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+    await guest.waitFor(
+        (envelope) => envelope.type === 'playback.state' &&
+            (envelope.payload.playback as { paused: boolean }).paused === false,
+    );
+
+    // A crafted pause position must not turn the play/pause grant into seek
+    // authority. The service pauses at its canonical position instead.
+    guest.send('playback.command', {
+        commandId: 'guest-pause',
+        action: 'pause',
+        expectedRevision: (playing.payload.playback as { revision: number }).revision,
+        mediaRevision: 1,
+        positionMs: 999_000,
+        leadMs: 5000,
+    });
+    const paused = await host.waitFor(
+        (envelope) => envelope.type === 'playback.state' &&
+            (envelope.payload.playback as { paused: boolean }).paused === true,
+    );
+    assert.notEqual((paused.payload.playback as { positionMs: number }).positionMs, 999_000);
+
+    const seekError = await guest.request('playback.command', {
+        commandId: 'guest-seek',
+        action: 'seek',
+        expectedRevision: (paused.payload.playback as { revision: number }).revision,
+        mediaRevision: 1,
+        positionMs: 1000,
+    });
+    assert.equal(seekError.payload.code, 'NOT_HOST');
+
+    host.send('room.policy.update', { policy: { allowGuestPlayPause: false } });
+    await host.waitFor(
+        (envelope) => envelope.type === 'room.updated' &&
+            (envelope.payload.policy as { allowGuestPlayPause: boolean }).allowGuestPlayPause === false,
+    );
+    const playError = await guest.request('playback.command', {
+        commandId: 'guest-play-revoked',
+        action: 'play',
+        expectedRevision: (paused.payload.playback as { revision: number }).revision,
+        mediaRevision: 1,
+    });
+    assert.equal(playError.payload.code, 'NOT_HOST');
+});
+
+test('authority: a guest cannot change room policy', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    const error = await guest.request('room.policy.update', {
+        policy: { allowGuestPlayPause: true },
+    });
+    assert.equal(error.payload.code, 'NOT_HOST');
+    assert.equal(
+        harness.server.service.rooms.get(host.roomId as string)?.policy.allowGuestPlayPause,
+        false,
+    );
+});
+
 test('authority: a guest cannot change media or refresh the source', async (t) => {
     const { harness, host, guest } = await setUpStartedRoom();
     t.after(() => harness.stop());

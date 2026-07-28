@@ -40,6 +40,7 @@ const RATE_BUCKETS: Record<ClientMessageType, RateBucketName> = {
     'room.join': 'command',
     'room.leave': 'command',
     'room.close': 'command',
+    'room.policy.update': 'command',
     'participant.ready': 'status',
     'playback.command': 'command',
     'playback.observation': 'status',
@@ -182,6 +183,13 @@ export class WatchPartyService {
                 return;
             case 'room.close':
                 this.handleRoomClose(session);
+                return;
+            case 'room.policy.update':
+                this.handleRoomPolicyUpdate(
+                    session,
+                    validateClientMessage(this.schemas, type, envelope.payload),
+                    nowMs,
+                );
                 return;
             case 'participant.ready':
                 this.handleParticipantReady(session, validateClientMessage(this.schemas, type, envelope.payload), nowMs);
@@ -446,6 +454,16 @@ export class WatchPartyService {
             throw new ProtocolError('NOT_HOST', 'only the host can end the room');
         }
         this.closeRoom(room, 'host_ended');
+    }
+
+    private handleRoomPolicyUpdate(
+        session: SessionRecord,
+        payload: ClientMessagePayload<'room.policy.update'>,
+        nowMs: number,
+    ): void {
+        const { room, participantId } = this.requireRoomMembership(session);
+        const policy = room.updatePolicy(participantId, payload.policy, nowMs);
+        this.broadcast(room, 'room.updated', { policy });
     }
 
     private handleParticipantReady(

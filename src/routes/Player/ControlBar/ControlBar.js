@@ -48,6 +48,7 @@ const ControlBar = React.forwardRef(({
     watchPartyAvailable,
     watchPartyActive,
     timelineControlsLocked,
+    playPauseControlsLocked,
     onToggleWatchPartyMenu,
     onTouchEnd,
     ...props
@@ -81,6 +82,9 @@ const ControlBar = React.forwardRef(({
         event.nativeEvent.watchPartyMenuClosePrevented = true;
     }, []);
     const onPlayPauseButtonClick = React.useCallback(() => {
+        if (playPauseControlsLocked) {
+            return;
+        }
         if (paused) {
             if (typeof onPlayRequested === 'function') {
                 onPlayRequested();
@@ -90,7 +94,7 @@ const ControlBar = React.forwardRef(({
                 onPauseRequested();
             }
         }
-    }, [paused, onPlayRequested, onPauseRequested]);
+    }, [paused, playPauseControlsLocked, onPlayRequested, onPauseRequested]);
     const onNextVideoButtonClick = React.useCallback(() => {
         if (nextVideo !== null && typeof onNextVideoRequested === 'function') {
             onNextVideoRequested();
@@ -132,9 +136,9 @@ const ControlBar = React.forwardRef(({
     return (
         <div ref={ref} {...props} onTouchStart={props.onMouseOver} onTouchMove={props.onMouseMove} onTouchEnd={onTouchEnd} className={classnames(className, styles['control-bar-container'])}>
             {/*
-                While following a watch party the timeline is owned by the host.
-                The controls are visibly disabled rather than silently ignored, so
-                a guest can see why nothing happens (plan section 6.3).
+                While following a watch party, seek/rate/next remain host-owned.
+                Play/pause has a separate lock because the host may grant it to
+                guests. Refused controls are visibly disabled (plan section 6.3).
             */}
             <SeekBar
                 className={classnames(styles['seek-bar'], { 'disabled': timelineControlsLocked })}
@@ -145,7 +149,7 @@ const ControlBar = React.forwardRef(({
                 playbackSpeed={playbackSpeed}
             />
             <div className={styles['control-bar-buttons-container']}>
-                <Button className={classnames(styles['control-bar-button'], { 'disabled': typeof paused !== 'boolean' || timelineControlsLocked })} title={paused ? t('PLAYER_PLAY') : t('PLAYER_PAUSE')} tabIndex={-1} onClick={onPlayPauseButtonClick}>
+                <Button className={classnames(styles['control-bar-button'], { 'disabled': typeof paused !== 'boolean' || playPauseControlsLocked })} title={paused ? t('PLAYER_PLAY') : t('PLAYER_PAUSE')} tabIndex={-1} onClick={onPlayPauseButtonClick}>
                     <Icon className={styles['icon']} name={typeof paused !== 'boolean' || paused ? 'play' : 'pause'} />
                 </Button>
                 {
@@ -269,6 +273,7 @@ ControlBar.propTypes = {
     watchPartyAvailable: PropTypes.bool,
     watchPartyActive: PropTypes.bool,
     timelineControlsLocked: PropTypes.bool,
+    playPauseControlsLocked: PropTypes.bool,
     onToggleWatchPartyMenu: PropTypes.func,
     onMouseOver: PropTypes.func,
     onMouseMove: PropTypes.func,

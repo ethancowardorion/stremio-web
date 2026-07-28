@@ -4,7 +4,7 @@ const React = require('react');
 const PropTypes = require('prop-types');
 const classnames = require('classnames');
 const { useTranslation } = require('react-i18next');
-const { Button, TextInput } = require('stremio/components');
+const { Button, TextInput, Toggle } = require('stremio/components');
 const { CONNECTION_STATUS, SOURCE_COMPATIBILITY } = require('stremio/services/WatchParty');
 const ParticipantList = require('stremio/routes/WatchParty/ParticipantList');
 const { errorTranslationKey } = require('stremio/routes/WatchParty/errorMessage');
@@ -35,6 +35,16 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
     const [copied, setCopied] = React.useState(false);
     const [failure, setFailure] = React.useState(null);
 
+    const onMenuMouseDown = React.useCallback((event) => {
+        // The player closes menus on any mouse-down not explicitly claimed by
+        // that menu. Keep interactions such as copying the invite and changing
+        // room policy inside this panel from being mistaken for outside clicks.
+        event.nativeEvent.watchPartyMenuClosePrevented = true;
+        if (typeof onMouseDown === 'function') {
+            onMouseDown(event);
+        }
+    }, [onMouseDown]);
+
     const onStart = React.useCallback(() => {
         setFailure(null);
         setCreating(true);
@@ -58,12 +68,18 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
         }
     }, [watchParty.invitationUrl]);
 
+    const onGuestPlayPauseToggle = React.useCallback(() => {
+        const enabled = watchParty.room !== null &&
+            watchParty.room.policy.allowGuestPlayPause === true;
+        watchParty.updatePolicy({ allowGuestPlayPause: !enabled });
+    }, [watchParty.room, watchParty.updatePolicy]);
+
     const sourceKey = SOURCE_TRANSLATION_KEYS[watchParty.sourceCompatibility.status] || null;
     const failureKey = failure === null ? null : errorTranslationKey(failure);
     const connectionKey = CONNECTION_TRANSLATION_KEYS[watchParty.status] || 'WATCH_PARTY_DISCONNECTED';
 
     return (
-        <div className={classnames(className, styles['watch-party-menu-container'])} onMouseDown={onMouseDown}>
+        <div className={classnames(className, styles['watch-party-menu-container'])} onMouseDown={onMenuMouseDown}>
             <div className={styles['header']}>
                 <span className={styles['title']}>{t('WATCH_PARTY')}</span>
                 <span className={styles['connection']}>{t(connectionKey)}</span>
@@ -132,6 +148,22 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                         </div>
 
                         {
+                            watchParty.isHost ?
+                                <div className={styles['section']}>
+                                    <Toggle
+                                        className={styles['policy-toggle']}
+                                        checked={watchParty.room !== null &&
+                                            watchParty.room.policy.allowGuestPlayPause === true}
+                                        onClick={onGuestPlayPauseToggle}
+                                    >
+                                        <span>{t('WATCH_PARTY_ALLOW_GUEST_PLAY_PAUSE')}</span>
+                                    </Toggle>
+                                </div>
+                                :
+                                null
+                        }
+
+                        {
                             !watchParty.supported ?
                                 <div className={styles['notice']}>{t('WATCH_PARTY_UNSUPPORTED_PLAYER')}</div>
                                 :
@@ -164,7 +196,8 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                                 null
                         }
                         {
-                            watchParty.isFollower ?
+                            watchParty.isFollower &&
+                            !(watchParty.room !== null && watchParty.room.policy.allowGuestPlayPause === true) ?
                                 <div className={styles['notice']}>{t('WATCH_PARTY_CONTROLS_LOCKED')}</div>
                                 :
                                 null

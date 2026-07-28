@@ -84,6 +84,7 @@ const createWatchPartyValue = (overrides = {}) => {
     const observations = [];
     const mediaChanges = [];
     const capabilities = [];
+    const policies = [];
     const value = {
         available: true,
         inRoom: false,
@@ -111,6 +112,7 @@ const createWatchPartyValue = (overrides = {}) => {
             observe: (next) => observations.push(next),
             changeMedia: (next) => mediaChanges.push(next),
             refreshSource: () => undefined,
+            updatePolicy: (next) => policies.push(next),
             createRoom: () => Promise.resolve({}),
             leave: () => undefined,
             closeRoom: () => undefined,
@@ -118,7 +120,7 @@ const createWatchPartyValue = (overrides = {}) => {
         },
         ...overrides,
     };
-    return { value, commands, readiness, observations, mediaChanges, capabilities };
+    return { value, commands, readiness, observations, mediaChanges, capabilities, policies };
 };
 
 const renderAdapter = ({ watchPartyValue, video, player, urlParams, casting }) => {
@@ -255,6 +257,16 @@ describe('watch party player adapter: host authority', () => {
         expect(result.current.isHost).toBe(true);
         unmount();
     });
+
+    it('exposes room policy updates to the player menu', () => {
+        const { value, policies } = hostValue();
+        const { result, unmount } = renderAdapter({ watchPartyValue: value, video: createFakeVideo() });
+
+        act(() => result.current.updatePolicy({ allowGuestPlayPause: true }));
+
+        expect(policies).toEqual([{ allowGuestPlayPause: true }]);
+        unmount();
+    });
 });
 
 describe('watch party player adapter: guest restrictions', () => {
@@ -281,6 +293,32 @@ describe('watch party player adapter: guest restrictions', () => {
             expect(result.current.handleTimelineIntent(action, { positionMs: 1, rate: 2 })).toBe(true);
         });
         expect(commands).toEqual([]);
+        unmount();
+    });
+
+    it('unlocks guest play/pause while keeping seek and rate locked', () => {
+        const { value, commands } = guestValue({
+            room: {
+                roomId: 'r1',
+                hostParticipantId: 'p-host',
+                policy: { allowGuestPlayPause: true },
+            },
+        });
+        const { result, unmount } = renderAdapter({
+            watchPartyValue: value,
+            video: createFakeVideo({ paused: false }),
+        });
+
+        expect(result.current.controlsLocked).toBe(true);
+        expect(result.current.playPauseControlsLocked).toBe(false);
+        expect(result.current.handleTimelineIntent('play')).toBe(true);
+        expect(result.current.handleTimelineIntent('pause')).toBe(true);
+        expect(result.current.handleTimelineIntent('seek', { positionMs: 1 })).toBe(true);
+        expect(result.current.handleTimelineIntent('rate', { rate: 2 })).toBe(true);
+        expect(commands).toEqual([
+            { action: 'play', options: {} },
+            { action: 'pause', options: { positionMs: 60_000 } },
+        ]);
         unmount();
     });
 

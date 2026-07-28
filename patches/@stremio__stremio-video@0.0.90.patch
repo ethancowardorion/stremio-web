@@ -1,0 +1,25 @@
+diff --git a/src/HTMLVideo/HTMLVideo.js b/src/HTMLVideo/HTMLVideo.js
+index 902b93e3564339506e7757688dbd8ca11feb5ace..dbc8db42b177f0158fa5bef3feeeedf67cfce045 100644
+--- a/src/HTMLVideo/HTMLVideo.js
++++ b/src/HTMLVideo/HTMLVideo.js
+@@ -406,6 +406,19 @@ function HTMLVideo(options) {
+         switch (propName) {
+             case 'paused': {
+                 if (stream !== null) {
+-                    propValue ? videoElement.pause() : videoElement.play();
++                    if (propValue) {
++                        videoElement.pause();
++                    } else {
++                        var playPromise = videoElement.play();
++                        // Browsers reject play() when a subsequent pause, seek,
++                        // or load supersedes it. This is an expected media race,
++                        // not a playback failure, but leaving the promise
++                        // unhandled surfaces it as a runtime error.
++                        if (playPromise && typeof playPromise.catch === 'function') {
++                            playPromise.catch(function() {
++                                onPropChanged('paused');
++                            });
++                        }
++                    }
+                     onPropChanged('paused');
+                 }
