@@ -112,6 +112,40 @@ health check reports healthy, two clients complete a full host/guest flow throug
 it, a guest command is refused, and no auth key or add-on URL appears in its
 logs.
 
+## Trying it locally
+
+```sh
+node scripts/watch-party-demo.mjs
+```
+
+That starts the room service in Docker, generates a five-minute test clip with a
+burnt-in timecode, serves it, and runs the web app in development over plain
+HTTP. It prints step-by-step instructions and tears everything down on Ctrl-C.
+
+The clip is generated rather than downloaded on purpose: the demo needs no
+Stremio account, no addon and no torrent, so it exercises the synchronization
+path and nothing else. It carries an audio tone because browsers only block
+autoplay for media with sound — a silent clip would never exercise the
+activation overlay.
+
+Two details make it work without friction:
+
+- **Plain HTTP.** The dev server normally serves HTTPS with a self-signed
+  certificate, which would mean clicking through a warning in each of two
+  browsers. `DEV_SERVER_TYPE=http` overrides that for the demo only.
+- **A dev-server WebSocket proxy** at `/watch-party/ws`, mirroring the
+  production Caddy mapping. The client therefore derives its endpoint from
+  `window.location` in development exactly as it does in production, with no
+  build-time configuration and no cross-origin socket.
+
+Ports are `8123` (app), `8787` (service) and `8099` (clip), each overridable via
+`WATCH_PARTY_DEMO_*_PORT`. 8080 is deliberately avoided: it is contested enough
+that another process binding `127.0.0.1:8080` later can silently shadow a server
+already listening on the wildcard address.
+
+To play real content instead, paste any direct video URL into the search bar, or
+use your own addons as usual — the watch party button appears on any player.
+
 ## What is not done
 
 These are known gaps, not oversights.

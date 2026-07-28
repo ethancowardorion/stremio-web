@@ -185,8 +185,25 @@ module.exports = (env, argv) => ({
         host: '0.0.0.0',
         static: false,
         hot: false,
-        server: 'https',
-        liveReload: false
+        // Overridable so the local watch party demo can serve plain HTTP and
+        // avoid a self-signed certificate warning in each of two browsers.
+        server: env?.DEV_SERVER_TYPE ?? 'https',
+        liveReload: false,
+        // Mirrors the production reverse proxy (see watch-party-server/Caddyfile.example)
+        // so the client derives its endpoint from window.location in development
+        // exactly as it does in production, with no build-time configuration and
+        // no cross-origin WebSocket.
+        proxy: [
+            {
+                context: ['/watch-party/ws'],
+                target: env?.WATCH_PARTY_PROXY_TARGET ?? 'http://127.0.0.1:8787',
+                ws: true,
+                pathRewrite: { '^/watch-party/ws': '/v1/ws' },
+                // Without a service running this would log a stack trace on every
+                // attempt; the client already reports the failure in the interface.
+                logLevel: 'silent',
+            },
+        ]
     },
     optimization: {
         minimize: true,
