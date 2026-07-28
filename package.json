@@ -17,7 +17,11 @@
         "testPathIgnorePatterns": [
             "/node_modules/",
             "<rootDir>/watch-party-server/"
-        ]
+        ],
+        "moduleNameMapper": {
+            "^stremio/(.*)$": "<rootDir>/src/$1",
+            "^stremio-router/(.*)$": "<rootDir>/src/router/$1"
+        }
     },
     "engines": {
         "node": ">=22",
@@ -80,6 +84,7 @@
         "globals": "^15.15.0",
         "html-webpack-plugin": "5.6.7",
         "jest": "29.7.0",
+        "jest-environment-jsdom": "29.7.0",
         "less": "4.6.4",
         "less-loader": "12.3.2",
         "mini-css-extract-plugin": "2.10.2",

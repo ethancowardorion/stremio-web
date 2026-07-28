@@ -60,6 +60,11 @@ export default [
         element: <routes.Player />,
     },
     {
+        path: '/watch-party/:roomId',
+        view: 2,
+        element: <routes.WatchParty />,
+    },
+    {
         path: '/',
         view: 0,
         element: <routes.Board />,

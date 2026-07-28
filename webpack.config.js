@@ -211,6 +211,10 @@ module.exports = (env, argv) => ({
         new webpack.ProgressPlugin(),
         new webpack.EnvironmentPlugin({
             SENTRY_DSN: null,
+            // Null means "derive wss://<current-origin>/watch-party/ws at runtime",
+            // which is what the same-origin reverse proxy deployment expects. Set
+            // it explicitly only for development or a split deployment.
+            WATCH_PARTY_WS_URL: null,
             ...env,
             SERVICE_WORKER_DISABLED: false,
             DEBUG: argv.mode !== 'production',

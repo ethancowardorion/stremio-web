@@ -144,6 +144,25 @@ html:not(.active-slider-within) {
             left: initial;
             bottom: initial;
         }
+
+        // Shown only when the browser actually refused to start playback. It
+        // covers the video so the required click cannot be missed.
+        &.activation-layer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            background-color: @color-background-dark5-40;
+            cursor: pointer;
+
+            .activation-message {
+                max-width: 30rem;
+                font-size: 1.2rem;
+                line-height: 1.5;
+                text-align: center;
+                color: @color-surface-light5-90;
+            }
+        }
     }
 }
 

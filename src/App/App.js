@@ -6,7 +6,7 @@ const { useTranslation } = require('react-i18next');
 const { useNavigate } = require('react-router');
 const { useCore } = require('stremio/core');
 const { Routes } = require('stremio-router');
-const { Chromecast, ServicesProvider, GamepadProvider } = require('stremio/services');
+const { Chromecast, ServicesProvider, GamepadProvider, WatchPartyProvider } = require('stremio/services');
 const { FullscreenProvider, ToastProvider, TooltipProvider, ShortcutsProvider, DiscordProvider, CONSTANTS, useBinaryState, useProfile, withCoreSuspender, onFileDrop, usePlatform } = require('stremio/common');
 const ServicesToaster = require('./ServicesToaster');
 const SearchParamsHandler = require('./SearchParamsHandler');
@@ -188,17 +188,27 @@ const App = () => {
                         <ShortcutsProvider onShortcut={onShortcut}>
                             <FullscreenProvider>
                                 <DiscordProvider>
-                                    {
-                                        shortcutModalOpen && <ShortcutsModal onClose={closeShortcutsModal}/>
-                                    }
-                                    {
-                                        gamepadModalOpen && <GamepadModal onClose={closeGamepadModal}/>
-                                    }
-                                    <ServicesToaster />
-                                    <SearchParamsHandler />
-                                    <DeepLinkHandler />
-                                    <UpdaterBanner className={styles['updater-banner-container']} />
-                                    <ProtectedRoutes />
+                                    {/*
+                                        Above the routes so the room, socket and clock estimate
+                                        survive navigation between the join screen, meta details
+                                        and the player.
+                                    */}
+                                    <WatchPartyProvider
+                                        endpointUrl={process.env.WATCH_PARTY_WS_URL}
+                                        clientVersion={process.env.VERSION}
+                                    >
+                                        {
+                                            shortcutModalOpen && <ShortcutsModal onClose={closeShortcutsModal}/>
+                                        }
+                                        {
+                                            gamepadModalOpen && <GamepadModal onClose={closeGamepadModal}/>
+                                        }
+                                        <ServicesToaster />
+                                        <SearchParamsHandler />
+                                        <DeepLinkHandler />
+                                        <UpdaterBanner className={styles['updater-banner-container']} />
+                                        <ProtectedRoutes />
+                                    </WatchPartyProvider>
                                 </DiscordProvider>
                             </FullscreenProvider>
                         </ShortcutsProvider>

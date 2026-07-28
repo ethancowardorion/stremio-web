@@ -11,6 +11,13 @@
         --thumb-size: 1.2rem;
 
         height: 2.5rem;
+
+        // While following a watch party the host owns the timeline. The bar
+        // still shows the room's position, but it cannot be dragged.
+        &:global(.disabled) {
+            pointer-events: none;
+            opacity: 0.5;
+        }
     }
 
     .control-bar-buttons-container {
@@ -36,6 +43,13 @@
             &:global(.disabled) {
                 .icon {
                     opacity: 0.4;
+                }
+            }
+
+            // Highlights that this player is currently in a party.
+            &.watch-party-button:global(.active) {
+                .icon {
+                    color: @color-accent3;
                 }
             }
 
