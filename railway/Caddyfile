@@ -1,0 +1,49 @@
+# Copyright (C) 2017-2026 Smart code 203358507
+#
+# Public edge for the Railway deployment.
+#
+# Railway terminates TLS at its own proxy and forwards plain HTTP to $PORT, so
+# Caddy only routes. Serving the app and the room service from one origin is
+# deliberate: the client then derives wss://<origin>/watch-party/ws from
+# window.location with no build-time configuration and no cross-origin socket.
+
+{
+	# Railway owns the certificate; Caddy must not try to get one.
+	auto_https off
+	admin off
+}
+
+:{$PORT:8080} {
+	encode zstd gzip
+
+	# The public path is rewritten onto the service's versioned path, so the
+	# protocol version can change without invalidating invitations already
+	# handed out.
+	handle /watch-party/ws {
+		rewrite * /v1/ws
+		reverse_proxy {$WATCH_PARTY_UPSTREAM:watch-party.railway.internal:8787}
+	}
+
+	handle /watch-party/healthz {
+		rewrite * /healthz
+		reverse_proxy {$WATCH_PARTY_UPSTREAM:watch-party.railway.internal:8787}
+	}
+
+	# Metrics are deliberately not routed. The room service keeps them on a
+	# separate listener, and this deployment disables it entirely.
+
+	handle {
+		root * /srv/stremio-web
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# No Content-Security-Policy. Stremio loads a core Web Worker and WASM,
+		# talks to arbitrary user-installed addon origins, a streaming server on
+		# 127.0.0.1 and Chromecast's script. Build a policy from
+		# Content-Security-Policy-Report-Only data before enforcing one.
+	}
+}

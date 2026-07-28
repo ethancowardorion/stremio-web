@@ -12,7 +12,20 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const packageJson = require('./package.json');
 
-const COMMIT_HASH = execSync('git rev-parse HEAD').toString().trim();
+// Asset paths are namespaced by commit so a deploy cannot serve a half-updated
+// mix of old and new bundles. Container builders do not always ship `.git` or a
+// git binary, so fall back to whatever the platform exposes rather than failing
+// the build outright.
+const COMMIT_HASH = (() => {
+    try {
+        return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch (_) {
+        return process.env.RAILWAY_GIT_COMMIT_SHA ||
+            process.env.SOURCE_COMMIT ||
+            process.env.COMMIT_HASH ||
+            'development';
+    }
+})();
 
 const THREAD_LOADER = {
     loader: 'thread-loader',

@@ -112,6 +112,13 @@ For two people, a public origin is more than you need. See
 stack on a Tailscale tailnet instead: real HTTPS, no domain, no port forwarding
 and nothing exposed to the internet.
 
+Two deployments are worked out in detail:
+
+- [`watch-party-railway.md`](watch-party-railway.md) — two Railway services
+  behind one public domain, nothing to run at home.
+- [`watch-party-tailscale.md`](watch-party-tailscale.md) — the same stack on a
+  Tailscale tailnet: real HTTPS, no domain, nothing exposed to the internet.
+
 Verified against the built container: it runs read-only as a non-root user, its
 health check reports healthy, two clients complete a full host/guest flow through
 it, a guest command is refused, and no auth key or add-on URL appears in its
