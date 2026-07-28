@@ -12,6 +12,7 @@ const { createClock } = require('./clock');
 const { createStorage } = require('./storage');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 // Backoff bounds. The first retry is fast because most disconnects are a blip;
 // the ceiling keeps a long outage from hammering the service.
@@ -60,6 +61,7 @@ const createWatchPartyClient = (options) => {
     const clearTimeoutFn = config.clearTimeout || clearTimeout;
     const random = config.random || Math.random;
     const requestTimeoutMs = config.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
+    const handshakeTimeoutMs = config.handshakeTimeoutMs || DEFAULT_HANDSHAKE_TIMEOUT_MS;
     const storage = config.storage || createStorage();
 
     const emitter = new EventEmitter();
@@ -72,9 +74,12 @@ const createWatchPartyClient = (options) => {
     let reconnectAttempt = 0;
     let reconnectTimer = null;
     let clockTimer = null;
+    let handshakeTimer = null;
     let clockBurstRemaining = 0;
     let requestCounter = 0;
     let handshakeCompleted = false;
+    let helloUsedResume = false;
+    let resumeRetryAttempted = false;
     const pendingRequests = new Map();
     const pendingPings = new Map();
 
@@ -99,6 +104,10 @@ const createWatchPartyClient = (options) => {
         if (clockTimer !== null) {
             clearTimeoutFn(clockTimer);
             clockTimer = null;
+        }
+        if (handshakeTimer !== null) {
+            clearTimeoutFn(handshakeTimer);
+            handshakeTimer = null;
         }
     };
 
@@ -217,6 +226,7 @@ const createWatchPartyClient = (options) => {
 
     const sendHello = () => {
         const stored = storage.readSession();
+        helloUsedResume = stored !== null;
         const payload = {
             protocolVersion: 1,
             clientVersion,
@@ -230,6 +240,10 @@ const createWatchPartyClient = (options) => {
 
     const handleWelcome = (payload) => {
         handshakeCompleted = true;
+        if (handshakeTimer !== null) {
+            clearTimeoutFn(handshakeTimer);
+            handshakeTimer = null;
+        }
         reconnectAttempt = 0;
         // A resume keeps the original token; only a fresh session issues one.
         if (typeof payload.resumeToken === 'string') {
@@ -246,6 +260,23 @@ const createWatchPartyClient = (options) => {
             return;
         }
         const envelope = result.envelope;
+
+        if (
+            !handshakeCompleted &&
+            envelope.type === SERVER_MESSAGE.ERROR &&
+            envelope.payload.code === 'RESUME_REJECTED' &&
+            helloUsedResume &&
+            !resumeRetryAttempted
+        ) {
+            // A rejected resume does not close the server connection. Retry the
+            // still-unaccepted handshake once as a fresh session so callers
+            // waiting for READY cannot remain stuck behind an open socket.
+            resumeRetryAttempted = true;
+            storage.clearSession();
+            sendHello();
+            emitter.emit(CLIENT_EVENT.MESSAGE, envelope);
+            return;
+        }
 
         if (envelope.type === SERVER_MESSAGE.CLOCK_PONG) {
             handleClockPong(envelope.payload);
@@ -303,6 +334,8 @@ const createWatchPartyClient = (options) => {
         }
         setStatus(STATUS.CONNECTING);
         handshakeCompleted = false;
+        helloUsedResume = false;
+        resumeRetryAttempted = false;
         try {
             socket = createSocket(url);
         } catch (error) {
@@ -315,6 +348,26 @@ const createWatchPartyClient = (options) => {
         socket.onopen = () => {
             setStatus(STATUS.OPEN);
             sendHello();
+            handshakeTimer = setTimeoutFn(() => {
+                handshakeTimer = null;
+                const current = socket;
+                detachSocket();
+                storage.clearSession();
+                rejectPending({ code: 'HANDSHAKE_TIMEOUT', message: 'watch party handshake timed out' });
+                if (current !== null) {
+                    try {
+                        current.close(4000, 'handshake timeout');
+                    } catch (_) {
+                        // The timeout recovery continues with a new socket.
+                    }
+                }
+                setStatus(STATUS.CLOSED);
+                emitter.emit(CLIENT_EVENT.ERROR, {
+                    code: 'HANDSHAKE_TIMEOUT',
+                    message: 'watch party handshake timed out',
+                });
+                scheduleReconnect();
+            }, handshakeTimeoutMs);
         };
         socket.onmessage = (event) => {
             handleMessage(typeof event === 'string' ? event : event && event.data);
@@ -391,6 +444,32 @@ const createWatchPartyClient = (options) => {
             }
             setStatus(STATUS.CLOSED);
         },
+        reconnect(clientCapabilities) {
+            capabilities = clientCapabilities;
+            intentionalClose = false;
+            clearTimers();
+            rejectPending({ code: 'DISCONNECTED', message: 'watch party client reconnecting' });
+            if (socket === null) {
+                openSocket();
+                return;
+            }
+            const current = socket;
+            current.onopen = null;
+            current.onmessage = null;
+            current.onerror = null;
+            current.onclose = () => {
+                if (socket === current) {
+                    socket = null;
+                }
+                setStatus(STATUS.CLOSED);
+                openSocket();
+            };
+            try {
+                current.close(1000, 'client reconnect');
+            } catch (_) {
+                current.onclose();
+            }
+        },
         send,
         request,
         // Exposed so a UI can offer an immediate retry instead of waiting out the
@@ -415,6 +494,7 @@ module.exports = {
     CLOCK_BURST_SAMPLES,
     CLOCK_BURST_INTERVAL_MS,
     CLOCK_REFRESH_INTERVAL_MS,
+    DEFAULT_HANDSHAKE_TIMEOUT_MS,
     computeBackoffMs,
     createWatchPartyClient,
 };

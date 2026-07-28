@@ -25,7 +25,7 @@ const initialState = {
     playback: null,
     participants: [],
     selfParticipantId: null,
-    // Only ever populated on the host, and only from `room.created`.
+    // Only populated on the host, from `room.created` or restored after resume.
     inviteSecret: null,
     closeReason: null,
     // Set when the service paused the room itself rather than the host doing it.
@@ -40,6 +40,7 @@ const ACTION = {
     ERROR: 'connection/error',
     MESSAGE: 'server/message',
     LEAVE: 'room/leave',
+    RESTORE_INVITE: 'room/restore-invite',
 };
 
 const upsertParticipant = (participants, participant) => {
@@ -190,6 +191,11 @@ const reduceServerMessage = (state, envelope) => {
         case SERVER_MESSAGE.ROOM_CLOSED:
             return {
                 ...state,
+                // The provider forgets the terminal session and disconnects the
+                // now-idle socket when this frame arrives. Mirror that transport
+                // state so the UI cannot remain stuck on "reconnecting".
+                status: CONNECTION_STATUS.CLOSED,
+                session: null,
                 room: null,
                 media: null,
                 source: null,
@@ -228,6 +234,12 @@ const reduce = (state, action) => {
         case ACTION.OPEN:
             // The handshake, not the socket, marks the connection usable.
             return { ...state, lastError: null };
+
+        case ACTION.RESTORE_INVITE:
+            if (state.room === null || state.room.roomId !== action.roomId || typeof action.inviteSecret !== 'string') {
+                return state;
+            }
+            return { ...state, inviteSecret: action.inviteSecret };
 
         case ACTION.CLOSED:
             return {

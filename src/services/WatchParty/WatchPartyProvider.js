@@ -3,7 +3,7 @@
 const React = require('react');
 const PropTypes = require('prop-types');
 const { WatchPartyContext } = require('./WatchPartyContext');
-const { CLIENT_MESSAGE, PLAYBACK_ACTION } = require('./protocol');
+const { CLIENT_MESSAGE, SERVER_MESSAGE, PLAYBACK_ACTION } = require('./protocol');
 const { CLIENT_EVENT, createWatchPartyClient } = require('./WatchPartyClient');
 const { ACTION, CONNECTION_STATUS, initialState, reduce, selectSelf, selectHost, selectIsHost, selectIsFollower } = require('./reducer');
 const { resolveWatchPartyUrl, buildInvitationUrl } = require('./endpoint');
@@ -81,7 +81,27 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
             monotonicNow,
         });
 
-        client.events.on(CLIENT_EVENT.MESSAGE, (envelope) => dispatch({ type: ACTION.MESSAGE, envelope }));
+        client.events.on(CLIENT_EVENT.MESSAGE, (envelope) => {
+            if (envelope.type === SERVER_MESSAGE.ROOM_SNAPSHOT && envelope.payload.room) {
+                const roomId = envelope.payload.room.roomId;
+                const isHost = envelope.payload.selfParticipantId === envelope.payload.room.hostParticipantId;
+                const inviteSecret = isHost ? client.storage.readInvite(roomId) : null;
+                dispatch({ type: ACTION.MESSAGE, envelope });
+                if (inviteSecret !== null) {
+                    dispatch({ type: ACTION.RESTORE_INVITE, roomId, inviteSecret });
+                }
+                return;
+            }
+            if (envelope.type === SERVER_MESSAGE.ROOM_CLOSED) {
+                const stored = client.storage.readSession();
+                const roomId = roomIdRef.current || (stored && stored.roomId);
+                if (roomId !== null) {
+                    client.storage.clearInvite(roomId);
+                }
+                client.disconnect({ forget: true });
+            }
+            dispatch({ type: ACTION.MESSAGE, envelope });
+        });
         client.events.on(CLIENT_EVENT.STATUS, (status) => {
             if (status === 'connecting') {
                 dispatch({ type: ACTION.CONNECTING });
@@ -145,8 +165,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         }
         const changed = Object.keys(capabilities).some((key) => capabilities[key] !== previous[key]);
         if (changed) {
-            client.disconnect();
-            client.connect(capabilities);
+            client.reconnect(capabilities);
         }
     }, []);
 

@@ -8,6 +8,7 @@ const {
     CLOCK_BURST_SAMPLES,
     CLOCK_BURST_INTERVAL_MS,
     CLOCK_REFRESH_INTERVAL_MS,
+    DEFAULT_HANDSHAKE_TIMEOUT_MS,
     computeBackoffMs,
     createWatchPartyClient,
 } = require('../src/services/WatchParty/WatchPartyClient');
@@ -227,6 +228,79 @@ describe('watch party client handshake', () => {
         harness.socket().drop(4002);
 
         expect(harness.storage.readSession()).toBeNull();
+    });
+
+    it('retries a rejected resume once as a fresh handshake on the same socket', () => {
+        const harness = setUp({
+            storedSession: { sessionId: 's-dead', resumeToken: 'dead-token-1234567890', roomId: 'room-old' },
+        });
+        const ready = jest.fn();
+        harness.client.events.on(CLIENT_EVENT.READY, ready);
+
+        harness.client.connect(CAPABILITIES);
+        harness.socket().accept();
+        expect(harness.socket().sentOfType('session.hello')[0].payload.resume).toEqual({
+            sessionId: 's-dead',
+            resumeToken: 'dead-token-1234567890',
+        });
+
+        harness.socket().deliver('error', { code: 'RESUME_REJECTED', message: 'expired' });
+
+        const hellos = harness.socket().sentOfType('session.hello');
+        expect(hellos).toHaveLength(2);
+        expect(hellos[1].payload.resume).toBeUndefined();
+        expect(harness.storage.readSession()).toBeNull();
+
+        harness.socket().deliver('session.welcome', welcomePayload());
+        expect(harness.client.isConnected).toBe(true);
+        expect(ready).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not loop if a credential-free handshake is also rejected', () => {
+        const harness = setUp({
+            storedSession: { sessionId: 's-dead', resumeToken: 'dead-token-1234567890' },
+        });
+        harness.client.connect(CAPABILITIES);
+        harness.socket().accept();
+        harness.socket().deliver('error', { code: 'RESUME_REJECTED', message: 'expired' });
+        harness.socket().deliver('error', { code: 'RESUME_REJECTED', message: 'still rejected' });
+
+        expect(harness.socket().sentOfType('session.hello')).toHaveLength(2);
+        expect(harness.client.isConnected).toBe(false);
+    });
+
+    it('times out an open socket that never completes its handshake', () => {
+        const harness = setUp({
+            storedSession: { sessionId: 's-dead', resumeToken: 'dead-token-1234567890' },
+        });
+        const errors = [];
+        harness.client.events.on(CLIENT_EVENT.ERROR, (error) => errors.push(error));
+
+        harness.client.connect(CAPABILITIES);
+        harness.socket().accept();
+        jest.advanceTimersByTime(DEFAULT_HANDSHAKE_TIMEOUT_MS);
+
+        expect(harness.socket().closeCalls).toEqual([{ code: 4000, reason: 'handshake timeout' }]);
+        expect(harness.storage.readSession()).toBeNull();
+        expect(harness.client.status).toBe(STATUS.CLOSED);
+        expect(errors).toContainEqual(expect.objectContaining({ code: 'HANDSHAKE_TIMEOUT' }));
+    });
+
+    it('waits for the old socket to close before reconnecting with new capabilities', () => {
+        const harness = setUp();
+        harness.client.connect(CAPABILITIES);
+        harness.socket().accept();
+        harness.socket().deliver('session.welcome', welcomePayload());
+        const changed = { ...CAPABILITIES, playerImplementation: 'MPV' };
+
+        harness.client.reconnect(changed);
+        expect(harness.socketCount).toBe(1);
+        expect(harness.socket().closeCalls).toEqual([{ code: 1000, reason: 'client reconnect' }]);
+
+        harness.socket().drop(1000);
+        expect(harness.socketCount).toBe(2);
+        harness.socket(1).accept();
+        expect(harness.socket(1).sentOfType('session.hello')[0].payload.capabilities).toEqual(changed);
     });
 
     it('records the room id alongside the session so a reload resumes in place', () => {

@@ -375,6 +375,7 @@ const Player = () => {
         if (watchParty.controlsLocked) return;
         if (player.nextVideo !== null) {
             cancelKeyboardSeek();
+            video.setTime(0);
             nextVideo();
 
             const deepLinks = player.nextVideo.deepLinks;
@@ -704,7 +705,6 @@ const Player = () => {
                     break;
                 case 'next-track':
                     if (player.nextVideo !== null) {
-                        video.setTime(0);
                         onNextVideoRequested();
                     }
                     break;
@@ -807,12 +807,8 @@ const Player = () => {
 
     onShortcut('playNext', () => {
         closeMenus();
-        if (player.nextVideo !== null) {
-            nextVideo();
-            const deepLinks = player.nextVideo.deepLinks;
-            handleNextVideoNavigation(deepLinks, false, false);
-        }
-    }, [player.nextVideo, handleNextVideoNavigation]);
+        onNextVideoRequested();
+    }, [onNextVideoRequested]);
 
     onShortcut('exit', () => {
         closeMenus();

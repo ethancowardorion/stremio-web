@@ -206,6 +206,25 @@ describe('watch party reducer: room state', () => {
         expect(closed.participants).toEqual([]);
         expect(closed.inviteSecret).toBeNull();
         expect(closed.closeReason).toBe('host_left');
+        expect(closed.status).toBe(CONNECTION_STATUS.CLOSED);
+        expect(closed.session).toBeNull();
+    });
+
+    it('restores an invitation only for the current room', () => {
+        const state = joined();
+        const unchanged = reduce(state, {
+            type: ACTION.RESTORE_INVITE,
+            roomId: 'another-room',
+            inviteSecret: 'secret',
+        });
+        expect(unchanged).toBe(state);
+
+        const restored = reduce(state, {
+            type: ACTION.RESTORE_INVITE,
+            roomId: state.room.roomId,
+            inviteSecret: 'secret',
+        });
+        expect(restored.inviteSecret).toBe('secret');
     });
 
     it('resets room state on an explicit local leave but keeps the session', () => {
