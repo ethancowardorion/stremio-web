@@ -368,6 +368,26 @@ describe('watch party player adapter: applying canonical state', () => {
             ...extra,
         });
 
+    it('does not apply the completed timeline while the host selects new media', () => {
+        const { value, mediaChanges } = createWatchPartyValue({
+            inRoom: true,
+            isHost: true,
+            isFollower: false,
+            mediaActive: false,
+            mediaRevision: 1,
+            room: { roomId: 'r1', hostParticipantId: 'p-host', policy: {} },
+            media: { type: 'series', metaId: 'tt1', videoId: 'tt1:1:1', title: 'Old', expectedDurationMs: DURATION_MS, live: false },
+            source: { streamParam: HOST_URL_PARAMS.stream, fingerprint: 'torrent:abc:0' },
+            playback: createPlayback({ paused: true, positionMs: DURATION_MS }),
+        });
+        const video = createFakeVideo({ paused: true, time: 0 });
+        const { unmount } = renderAdapter({ watchPartyValue: value, video });
+
+        expect(video.calls.filter(([name]) => name === 'setTime')).toEqual([]);
+        expect(mediaChanges).toHaveLength(1);
+        unmount();
+    });
+
     it('resumes a follower through the direct setters, with no command echo', () => {
         const { value, commands } = followerValue({ paused: false, effectiveAtServerMs: T0 - 1000, positionMs: 59_000 });
         const video = createFakeVideo({ paused: true, time: 60_000 });
@@ -615,13 +635,51 @@ describe('watch party player adapter: readiness', () => {
         }
     });
 
-    it('reports buffering once it lasts beyond 500 ms', () => {
+    it('does not report a stale buffering flag while playback stays aligned', () => {
         jest.useFakeTimers();
         try {
             const { value, readiness } = followerValue({
                 playback: createPlayback({ paused: false, effectiveAtServerMs: T0, positionMs: 60_000 }),
             });
             const video = createFakeVideo({ paused: false, buffering: true });
+            const adapter = renderAdapter({ watchPartyValue: value, video });
+
+            act(() => jest.advanceTimersByTime(501));
+
+            expect(readiness[readiness.length - 1].buffering).toBe(false);
+            adapter.unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('never lets the host player buffering flag block the room', () => {
+        jest.useFakeTimers();
+        try {
+            const { value, readiness } = followerValue({
+                isHost: true,
+                isFollower: false,
+                playback: createPlayback({ paused: false, effectiveAtServerMs: T0 - 2000, positionMs: 60_000 }),
+            });
+            const video = createFakeVideo({ paused: false, time: 60_000, buffering: true });
+            const adapter = renderAdapter({ watchPartyValue: value, video });
+
+            act(() => jest.advanceTimersByTime(2000));
+
+            expect(readiness.every((entry) => entry.buffering === false)).toBe(true);
+            adapter.unmount();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('reports buffering when the flag persists and playback falls behind', () => {
+        jest.useFakeTimers();
+        try {
+            const { value, readiness } = followerValue({
+                playback: createPlayback({ paused: false, effectiveAtServerMs: T0 - 2000, positionMs: 60_000 }),
+            });
+            const video = createFakeVideo({ paused: false, time: 60_000, buffering: true });
             const adapter = renderAdapter({ watchPartyValue: value, video });
 
             act(() => jest.advanceTimersByTime(501));

@@ -100,6 +100,8 @@ export class Room {
     playback: PlaybackState;
     policy: RoomPolicy;
     mediaRevision: number;
+    /** False while participants wait for the host to select new content. */
+    mediaActive: boolean = true;
     lastActivityServerMs: number;
     closed: boolean = false;
     closeReason: RoomCloseReason | null = null;
@@ -327,9 +329,20 @@ export class Room {
         participant.durationMs = input.durationMs;
         participant.mediaRevision = input.mediaRevision;
         participant.sourceFingerprint = input.sourceFingerprint;
-        // Readiness is only meaningful for the current media revision, and an
-        // unsupported client never claims to be synchronized.
-        participant.ready = input.ready && input.mediaRevision === this.mediaRevision && participant.supported;
+        // Strict readiness includes alignment and is required for the first
+        // start. After playback has started, a recovered host is ready when the
+        // same conditions that authorize resume are true. This keeps the public
+        // Ready label consistent with what the room can actually do.
+        const currentMedia = input.mediaRevision === this.mediaRevision &&
+            input.sourceFingerprint === this.source.fingerprint;
+        const strictReady = input.ready && currentMedia && participant.supported && !input.buffering;
+        const recoveredHostReady = participant.isHost &&
+            this.hasStartedCurrentMedia &&
+            currentMedia &&
+            participant.supported &&
+            input.loaded &&
+            !input.buffering;
+        participant.ready = strictReady || recoveredHostReady;
         participant.lastSeenServerMs = nowMs;
         this.touch(nowMs);
         return participant;
@@ -348,11 +361,23 @@ export class Room {
      * up through drift correction instead (plan section 10).
      */
     canStartPlayback(): boolean {
-        const host = this.hostParticipant;
-        if (host === undefined || !host.ready) {
+        if (!this.mediaActive) {
             return false;
         }
-        if (!this.policy.requireAllReadyToStart || this.hasStartedCurrentMedia) {
+        const host = this.hostParticipant;
+        if (host === undefined) {
+            return false;
+        }
+        // After the first start, do not deadlock on the alignment-derived ready
+        // flag. A recovered host can resume when its media is loaded. Sustained
+        // buffering still pauses the room through pauseForBuffering().
+        if (this.hasStartedCurrentMedia) {
+            return host.connected && host.supported && host.loaded && !host.buffering;
+        }
+        if (!host.ready) {
+            return false;
+        }
+        if (!this.policy.requireAllReadyToStart) {
             return true;
         }
         return this.listParticipants().every(
@@ -369,8 +394,9 @@ export class Room {
         const participant = this.requireParticipant(participantId);
         const isHost = participantId === this.hostParticipantId;
         const guestActionAllowed =
-            this.policy.allowGuestPlayPause &&
-            (command.action === 'play' || command.action === 'pause');
+            ((command.action === 'play' || command.action === 'pause') && this.policy.allowGuestPlayPause) ||
+            (command.action === 'seek' && this.policy.allowGuestSeek) ||
+            (command.action === 'rate' && this.policy.allowGuestPlaybackRate);
         if (!isHost && !guestActionAllowed) {
             throw new ProtocolError('NOT_HOST', 'only the host can perform this playback action');
         }
@@ -392,9 +418,8 @@ export class Room {
             throw new ProtocolError('READINESS_BARRIER', 'the room readiness barrier has not been satisfied');
         }
 
-        // A guest is allowed to request the transition, not choose its position
-        // or scheduling. Otherwise a crafted pause/play command could smuggle in
-        // a seek or an arbitrary lead time.
+        // A guest can send only the value needed for the granted action. A
+        // crafted pause/play command cannot smuggle in a seek or lead time.
         const authorizedCommand = isHost
             ? command
             : {
@@ -402,6 +427,8 @@ export class Room {
                 action: command.action,
                 expectedRevision: command.expectedRevision,
                 mediaRevision: command.mediaRevision,
+                ...(command.action === 'seek' ? { positionMs: command.positionMs } : {}),
+                ...(command.action === 'rate' ? { rate: command.rate } : {}),
             };
         const result = applyPlaybackCommand(this.playback, authorizedCommand, {
             nowMs,
@@ -433,6 +460,18 @@ export class Room {
         this.policy = normalizeRoomPolicy({ ...this.policy, ...policy });
         this.touch(nowMs);
         return this.policy;
+    }
+
+    removeParticipantByHost(hostParticipantId: string, participantId: string, nowMs: number): Participant {
+        if (hostParticipantId !== this.hostParticipantId) {
+            throw new ProtocolError('NOT_HOST', 'only the host can remove participants');
+        }
+        if (participantId === this.hostParticipantId) {
+            throw new ProtocolError('VALIDATION_FAILED', 'the host cannot remove itself');
+        }
+        const participant = this.requireParticipant(participantId);
+        this.removeParticipant(participantId, nowMs);
+        return participant;
     }
 
     /**
@@ -492,6 +531,7 @@ export class Room {
         const participant = this.participants.get(participantId);
         if (
             participant === undefined ||
+            !this.mediaActive ||
             !participant.connected ||
             !participant.supported ||
             !participant.buffering ||
@@ -533,6 +573,7 @@ export class Room {
 
         this.appliedMediaChangeIds.add(input.mediaChangeId);
         this.mediaRevision += 1;
+        this.mediaActive = true;
         this.hasStartedCurrentMedia = false;
         this.resetHostProgressTracking();
         this.pauseReason = null;
@@ -555,6 +596,31 @@ export class Room {
         }
         this.touch(nowMs);
         return { changed: true };
+    }
+
+    /**
+     * Pauses the completed media and keeps the room open for the host's next
+     * selection. Guests leave the player when the matching event arrives.
+     */
+    endMedia(participantId: string, nowMs: number): boolean {
+        if (participantId !== this.hostParticipantId) {
+            throw new ProtocolError('NOT_HOST', 'only the host can end the current media');
+        }
+        if (!this.mediaActive) {
+            return false;
+        }
+        this.mediaActive = false;
+        this.playback = freezePlayback(this.playback, nowMs, this.durationMs);
+        this.lastServerInitiatedRevision = this.playback.revision;
+        this.pauseReason = null;
+        this.resetHostProgressTracking();
+        for (const participant of this.participants.values()) {
+            participant.ready = false;
+            participant.loaded = false;
+            participant.buffering = false;
+        }
+        this.touch(nowMs);
+        return true;
     }
 
     /**
@@ -605,6 +671,13 @@ export class Room {
             this.hostStalledSinceServerMs !== null &&
             nowMs - this.hostStalledSinceServerMs > stallGraceMs
         ) {
+            const host = this.hostParticipant;
+            if (host !== undefined) {
+                // Unlike the browser's raw buffering property, this state is
+                // based on measured failure to advance the timeline.
+                host.buffering = true;
+                host.ready = false;
+            }
             // Pause where the host actually is, not where the room had reached.
             // That is the position it has data for, so resuming does not ask it
             // to buffer all over again, and it is a single deliberate move
@@ -783,6 +856,7 @@ export class Room {
             expiresAtServerMs: this.expiresAtServerMs,
             revision: this.playback.revision,
             mediaRevision: this.mediaRevision,
+            mediaActive: this.mediaActive,
             media: this.media,
             source: this.source,
             playback: this.playback,

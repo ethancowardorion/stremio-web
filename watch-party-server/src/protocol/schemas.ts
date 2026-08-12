@@ -100,6 +100,8 @@ const policy = () =>
     object({
         // Optional so a client may send a subset; the room fills in defaults.
         allowGuestPlayPause: optional(boolean()),
+        allowGuestSeek: optional(boolean()),
+        allowGuestPlaybackRate: optional(boolean()),
         requireAllReadyToStart: optional(boolean()),
         pauseOnGuestBuffering: optional(boolean()),
         pauseOnHostStall: optional(boolean()),
@@ -155,6 +157,9 @@ export const createClientMessageSchemas = (options: ClientMessageSchemaOptions) 
         'room.policy.update': object({
             policy: policy(),
         }),
+        'room.participant.remove': object({
+            participantId: idString(),
+        }),
         'participant.ready': object({
             ready: boolean(),
             loaded: boolean(),
@@ -173,6 +178,7 @@ export const createClientMessageSchemas = (options: ClientMessageSchemaOptions) 
             leadMs: optional(integer({ min: 0, max: MAX_LEAD_MS })),
         }),
         'playback.observation': observation(),
+        'media.end': object({}),
         'media.change': object({
             mediaChangeId: idString(),
             media: media(),

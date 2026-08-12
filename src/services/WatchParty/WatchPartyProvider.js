@@ -2,12 +2,14 @@
 
 const React = require('react');
 const PropTypes = require('prop-types');
+const { useLocation, useNavigate } = require('react-router');
 const { WatchPartyContext } = require('./WatchPartyContext');
 const { CLIENT_MESSAGE, SERVER_MESSAGE, PLAYBACK_ACTION } = require('./protocol');
 const { CLIENT_EVENT, createWatchPartyClient } = require('./WatchPartyClient');
 const { ACTION, CONNECTION_STATUS, initialState, reduce, selectSelf, selectHost, selectIsHost, selectIsFollower } = require('./reducer');
 const { resolveWatchPartyUrl, buildInvitationUrl } = require('./endpoint');
 const { expectedPositionMs } = require('./drift');
+const { guestPlayerPath } = require('./mediaIdentity');
 
 // Long-lived watch party state.
 //
@@ -39,6 +41,8 @@ const monotonicNow = () =>
     typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 
 const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersion }) => {
+    const location = useLocation();
+    const navigate = useNavigate();
     const [state, dispatch] = React.useReducer(reduce, initialState);
     const [clockState, setClockState] = React.useState({
         offsetMs: null,
@@ -296,6 +300,14 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         return client.send(CLIENT_MESSAGE.ROOM_POLICY_UPDATE, { policy });
     }, []);
 
+    const removeParticipant = React.useCallback((participantId) => {
+        const client = clientRef.current;
+        if (client === null || !client.isConnected || stateRef.current.room === null) {
+            return null;
+        }
+        return client.send(CLIENT_MESSAGE.ROOM_PARTICIPANT_REMOVE, { participantId });
+    }, []);
+
     const setReady = React.useCallback((input) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected) {
@@ -367,6 +379,14 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         });
     }, []);
 
+    const endMedia = React.useCallback(() => {
+        const client = clientRef.current;
+        if (client === null || !client.isConnected || stateRef.current.room === null) {
+            return null;
+        }
+        return client.send(CLIENT_MESSAGE.MEDIA_END, {});
+    }, []);
+
     const refreshSource = React.useCallback((source) => {
         const client = clientRef.current;
         if (client === null || !client.isConnected) {
@@ -405,6 +425,28 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
     const isHost = React.useMemo(() => selectIsHost(state), [state]);
     const isFollower = React.useMemo(() => selectIsFollower(state), [state]);
 
+    // Guests cannot select room media. While media is active, any guest route
+    // change returns to the host's player. While the room is idle, guests stay
+    // on the home page until the host publishes the next source.
+    const followerPlayerPath = React.useMemo(
+        () => guestPlayerPath(state.source, state.media),
+        [state.source, state.media]
+    );
+    React.useEffect(() => {
+        if (!isFollower) {
+            return;
+        }
+        if (!state.mediaActive) {
+            if (location.pathname !== '/') {
+                navigate('/', { replace: true });
+            }
+            return;
+        }
+        if (followerPlayerPath !== null && location.pathname !== followerPlayerPath) {
+            navigate(followerPlayerPath, { replace: true });
+        }
+    }, [isFollower, state.mediaActive, followerPlayerPath, location.pathname, navigate]);
+
     const invitationUrl = React.useMemo(() => {
         if (state.room === null || state.inviteSecret === null || typeof window === 'undefined') {
             return null;
@@ -428,6 +470,7 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         media: state.media,
         source: state.source,
         mediaRevision: state.mediaRevision,
+        mediaActive: state.mediaActive,
         resetRevision: state.resetRevision,
         playback: state.playback,
         participants: state.participants,
@@ -455,9 +498,11 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
             closeRoom,
             resetRoom,
             updatePolicy,
+            removeParticipant,
             setReady,
             observe,
             sendCommand,
+            endMedia,
             changeMedia,
             refreshSource,
             retryConnection,
@@ -483,9 +528,11 @@ const WatchPartyProvider = ({ children, clientFactory, endpointUrl, clientVersio
         closeRoom,
         resetRoom,
         updatePolicy,
+        removeParticipant,
         setReady,
         observe,
         sendCommand,
+        endMedia,
         changeMedia,
         refreshSource,
         retryConnection,

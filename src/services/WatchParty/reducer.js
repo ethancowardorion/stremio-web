@@ -22,6 +22,7 @@ const initialState = {
     media: null,
     source: null,
     mediaRevision: 0,
+    mediaActive: false,
     // Incremented when the host asks every player to rebuild its local sync
     // state from a clean room snapshot.
     resetRevision: 0,
@@ -74,6 +75,7 @@ const applySnapshot = (state, payload) => {
         media: room.media,
         source: room.source,
         mediaRevision: room.mediaRevision,
+        mediaActive: room.mediaActive !== false,
         resetRevision: payload.reset === true ? state.resetRevision + 1 : state.resetRevision,
         playback: room.playback,
         participants: Array.isArray(room.participants) ? room.participants : [],
@@ -163,6 +165,24 @@ const reduceServerMessage = (state, envelope) => {
                 serverTimeMs: typeof payload.serverTimeMs === 'number' ? payload.serverTimeMs : state.serverTimeMs,
             };
 
+        case SERVER_MESSAGE.MEDIA_ENDED:
+            if (typeof payload.mediaRevision !== 'number' || payload.mediaRevision !== state.mediaRevision) {
+                return state;
+            }
+            return {
+                ...state,
+                mediaActive: false,
+                playback: payload.playback || state.playback,
+                participants: state.participants.map((participant) => ({
+                    ...participant,
+                    ready: false,
+                    loaded: false,
+                    buffering: false,
+                })),
+                pauseReason: null,
+                serverTimeMs: typeof payload.serverTimeMs === 'number' ? payload.serverTimeMs : state.serverTimeMs,
+            };
+
         case SERVER_MESSAGE.MEDIA_CHANGED: {
             if (typeof payload.mediaRevision !== 'number' || payload.mediaRevision <= state.mediaRevision) {
                 return state;
@@ -180,6 +200,7 @@ const reduceServerMessage = (state, envelope) => {
             return {
                 ...state,
                 mediaRevision: payload.mediaRevision,
+                mediaActive: true,
                 media: payload.media,
                 source: payload.source,
                 playback: payload.playback || state.playback,
@@ -206,6 +227,7 @@ const reduceServerMessage = (state, envelope) => {
                 media: null,
                 source: null,
                 mediaRevision: 0,
+                mediaActive: false,
                 playback: null,
                 participants: [],
                 selfParticipantId: null,

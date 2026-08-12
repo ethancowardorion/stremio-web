@@ -131,7 +131,7 @@
         flex: none;
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0;
         margin: 0 0 1rem;
         padding: 0;
         list-style: none;
@@ -141,27 +141,46 @@
 // Shared by the join route and the in-player menu, so it lives outside the
 // route container selector.
 .participant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
     .participant {
         display: flex;
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.6rem 0.75rem;
-        border-radius: 0.4rem;
-        background-color: @color-background-light2;
+        gap: 0.5rem;
+        min-height: 2.25rem;
+        padding: 0.3rem 0.15rem;
+        border-bottom: 1px solid fade(@color-surface-light5, 12%);
+
+        &:last-child {
+            border-bottom: 0;
+        }
 
         .participant-identity {
             flex: 1;
             display: flex;
             flex-direction: row;
-            align-items: baseline;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+            align-items: center;
+            gap: 0.35rem;
             min-width: 0;
 
+            .participant-primary {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                flex-wrap: nowrap;
+                gap: 0.3rem;
+                min-width: 0;
+            }
+
             .participant-name {
-                font-size: 1rem;
+                font-size: 0.9rem;
                 color: @color-surface-light5-90;
                 overflow: hidden;
                 text-overflow: ellipsis;
@@ -171,24 +190,38 @@
             // Two devices on one Stremio account share a name, so the device
             // label is what tells them apart.
             .participant-device {
-                font-size: 0.85rem;
+                flex: none;
+                font-size: 0.72rem;
                 color: @color-surface-light5-60;
+
+                &::before {
+                    content: '·';
+                    margin-right: 0.35rem;
+                }
             }
 
             .participant-badge {
-                padding: 0.1rem 0.4rem;
+                flex: none;
+                padding: 0.05rem 0.3rem;
                 border-radius: 0.25rem;
                 background-color: @color-background-light3;
-                font-size: 0.75rem;
+                font-size: 0.65rem;
                 text-transform: uppercase;
                 letter-spacing: 0.04em;
                 color: @color-surface-light5-60;
             }
         }
 
-        .participant-status {
+        .participant-actions {
             flex: none;
-            font-size: 0.85rem;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .participant-status {
+            font-size: 0.75rem;
             color: @color-surface-light5-60;
 
             &.ready {
@@ -202,6 +235,31 @@
             &.offline,
             &.unsupported {
                 color: @color-accent1;
+            }
+        }
+
+        .participant-remove {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.4rem;
+            height: 1.4rem;
+            border: 0;
+            border-radius: 50%;
+            background-color: transparent;
+            color: @color-surface-light5-60;
+            font-size: 1.4rem;
+            line-height: 1;
+            cursor: pointer;
+
+            &:hover {
+                background-color: fade(@color-accent1, 12%);
+                color: @color-accent1;
+            }
+
+            .participant-remove-icon {
+                width: 0.8rem;
+                height: 0.8rem;
             }
         }
     }

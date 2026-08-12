@@ -185,6 +185,9 @@ const Player = () => {
 
     const nextVideoPopupDismissed = React.useRef(false);
     const defaultAudioTrackSelected = React.useRef(false);
+    const preferredAudioTrackId = React.useRef(null);
+    const lastAudioTrackRequest = React.useRef(null);
+    const audioTrackRetryTimers = React.useRef([]);
     const playingOnExternalDevice = React.useRef(false);
     const [error, setError] = React.useState(null);
 
@@ -222,6 +225,11 @@ const Player = () => {
 
     const onEnded = React.useCallback(() => {
         ended();
+        if (watchParty.isHost) {
+            // Keep the party open, but move every guest out of the completed
+            // player until the host selects the next item.
+            watchParty.endMedia();
+        }
         // A follower reaching the end waits for the host's media change rather
         // than advancing on its own or leaving the player.
         if (watchParty.controlsLocked) return;
@@ -233,7 +241,7 @@ const Player = () => {
         } else {
             navigate(-1);
         }
-    }, [player.nextVideo, profile.settings.bingeWatching, handleNextVideoNavigation, watchParty.controlsLocked]);
+    }, [player.nextVideo, profile.settings.bingeWatching, handleNextVideoNavigation, watchParty.controlsLocked, watchParty.isHost, watchParty.endMedia]);
 
     const onError = React.useCallback((error) => {
         console.error('Player', error);
@@ -356,7 +364,20 @@ const Player = () => {
     }, [video.state.videoScale]);
 
     const onAudioTrackSelected = React.useCallback((id) => {
+        // Audio is local in a watch party. Remember an explicit choice so a
+        // player track refresh cannot silently restore its default track.
+        preferredAudioTrackId.current = id;
+        defaultAudioTrackSelected.current = true;
+        lastAudioTrackRequest.current = null;
+        audioTrackRetryTimers.current.forEach(clearTimeout);
         video.setAudioTrack(id);
+        // Some implementations ignore a track change while they finish loading
+        // the manifest. Repeat the local choice after those transitions.
+        audioTrackRetryTimers.current = [250, 1000].map((delayMs) => setTimeout(() => {
+            if (preferredAudioTrackId.current === id) {
+                video.setAudioTrack(id);
+            }
+        }, delayMs));
         streamStateChanged({
             audioTrack: {
                 id,
@@ -587,23 +608,37 @@ const Player = () => {
 
     // Auto audio track selection
     React.useEffect(() => {
-        if (!defaultAudioTrackSelected.current) {
+        if (!defaultAudioTrackSelected.current || preferredAudioTrackId.current !== null) {
             const savedTrackId = player.streamState?.audioTrack?.id;
+            const preferredTrack = preferredAudioTrackId.current ?
+                findTrackById(video.state.audioTracks, preferredAudioTrackId.current) : null;
             const savedTrack = savedTrackId ? findTrackById(video.state.audioTracks, savedTrackId) : null;
-            const audioTrack = savedTrack ?? findTrackByLang(video.state.audioTracks, settings.audioLanguage);
+            const audioTrack = preferredTrack ?? savedTrack ?? findTrackByLang(video.state.audioTracks, settings.audioLanguage);
 
             if (audioTrack && audioTrack.id) {
-                video.setAudioTrack(audioTrack.id);
+                const requestKey = `${audioTrack.id}:${video.state.selectedAudioTrackId || ''}`;
+                if (video.state.selectedAudioTrackId !== audioTrack.id && lastAudioTrackRequest.current !== requestKey) {
+                    lastAudioTrackRequest.current = requestKey;
+                    video.setAudioTrack(audioTrack.id);
+                }
                 defaultAudioTrackSelected.current = true;
             }
         }
-    }, [video.state.audioTracks, player.streamState]);
+    }, [video.state.audioTracks, video.state.selectedAudioTrackId, player.streamState]);
 
     React.useEffect(() => {
         defaultAudioTrackSelected.current = false;
+        preferredAudioTrackId.current = null;
+        lastAudioTrackRequest.current = null;
+        audioTrackRetryTimers.current.forEach(clearTimeout);
+        audioTrackRetryTimers.current = [];
         nextVideoPopupDismissed.current = false;
         playingOnExternalDevice.current = false;
     }, [video.state.stream]);
+
+    React.useEffect(() => () => {
+        audioTrackRetryTimers.current.forEach(clearTimeout);
+    }, []);
 
     React.useEffect(() => {
         if (!Array.isArray(video.state.audioTracks) || video.state.audioTracks.length === 0) {
@@ -1082,6 +1117,8 @@ const Player = () => {
                 watchPartyAvailable={watchParty.available}
                 watchPartyActive={watchParty.inRoom}
                 timelineControlsLocked={watchParty.controlsLocked}
+                seekControlsLocked={watchParty.seekControlsLocked}
+                rateControlsLocked={watchParty.rateControlsLocked}
                 playPauseControlsLocked={watchParty.playPauseControlsLocked}
                 onToggleWatchPartyMenu={toggleWatchPartyMenu}
                 onMouseMove={onBarMouseMove}

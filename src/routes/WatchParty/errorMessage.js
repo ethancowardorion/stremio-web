@@ -27,6 +27,7 @@ const CLOSE_REASON_TRANSLATION_KEYS = {
     expired: 'WATCH_PARTY_ROOM_CLOSED_EXPIRED',
     server_shutdown: 'WATCH_PARTY_ROOM_CLOSED_SERVER',
     left: 'WATCH_PARTY_ROOM_CLOSED_LEFT',
+    removed: 'WATCH_PARTY_ROOM_CLOSED_REMOVED',
 };
 
 const errorTranslationKey = (error) => {

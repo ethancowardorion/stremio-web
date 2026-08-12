@@ -31,7 +31,7 @@ describe('watch party timeline intents: authority', () => {
         });
     });
 
-    it('lets an authorized guest publish only play and pause', () => {
+    it('lets an authorized guest publish play and pause', () => {
         const play = route({ isHost: false, allowGuestPlayPause: true, action: 'play' });
         const pause = route({ isHost: false, allowGuestPlayPause: true, action: 'pause' });
         expect(play).toEqual({
@@ -46,6 +46,23 @@ describe('watch party timeline intents: authority', () => {
             expect(decision.outcome).toBe(OUTCOME.BLOCKED);
             expect(decision.command).toBeNull();
         });
+    });
+
+    it('grants guest seek and rate independently', () => {
+        expect(route({
+            isHost: false,
+            allowGuestSeek: true,
+            action: 'seek',
+            options: { positionMs: 4000 },
+        }).command).toEqual({ action: 'seek', options: { positionMs: 4000 } });
+        expect(route({
+            isHost: false,
+            allowGuestPlaybackRate: true,
+            action: 'rate',
+            options: { rate: 1.25 },
+        }).command).toEqual({ action: 'rate', options: { rate: 1.25 } });
+        expect(route({ isHost: false, allowGuestSeek: true, action: 'play' }).outcome).toBe(OUTCOME.BLOCKED);
+        expect(route({ isHost: false, allowGuestPlaybackRate: true, action: 'seek' }).outcome).toBe(OUTCOME.BLOCKED);
     });
 
     it('takes ownership of the host intent instead of applying it locally', () => {

@@ -48,6 +48,8 @@ const ControlBar = React.forwardRef(({
     watchPartyAvailable,
     watchPartyActive,
     timelineControlsLocked,
+    seekControlsLocked,
+    rateControlsLocked,
     playPauseControlsLocked,
     onToggleWatchPartyMenu,
     onTouchEnd,
@@ -141,11 +143,11 @@ const ControlBar = React.forwardRef(({
                 guests. Refused controls are visibly disabled (plan section 6.3).
             */}
             <SeekBar
-                className={classnames(styles['seek-bar'], { 'disabled': timelineControlsLocked })}
+                className={classnames(styles['seek-bar'], { 'disabled': seekControlsLocked })}
                 time={time}
                 duration={duration}
                 buffered={buffered}
-                onSeekRequested={timelineControlsLocked ? null : onSeekRequested}
+                onSeekRequested={seekControlsLocked ? null : onSeekRequested}
                 playbackSpeed={playbackSpeed}
             />
             <div className={styles['control-bar-buttons-container']}>
@@ -191,7 +193,13 @@ const ControlBar = React.forwardRef(({
                     <Button className={classnames(styles['control-bar-button'], { 'disabled': statistics === null || statistics.type === 'Err' || stream === null || typeof stream.infoHash !== 'string' || typeof stream.fileIdx !== 'number' })} tabIndex={-1} onMouseDown={onStatisticsButtonMouseDown} onClick={onToggleStatisticsMenu}>
                         <Icon className={styles['icon']} name={'network'} />
                     </Button>
-                    <Button className={classnames(styles['control-bar-button'], { 'disabled': playbackSpeed === null || timelineControlsLocked })} tabIndex={-1} onMouseDown={onSpeedButtonMouseDown} onClick={onToggleSpeedMenu}>
+                    <Button
+                        className={classnames(styles['control-bar-button'], { 'disabled': playbackSpeed === null || rateControlsLocked })}
+                        disabled={playbackSpeed === null || rateControlsLocked}
+                        tabIndex={-1}
+                        onMouseDown={onSpeedButtonMouseDown}
+                        onClick={onToggleSpeedMenu}
+                    >
                         <Icon className={styles['icon']} name={'speed'} />
                     </Button>
                     {
@@ -219,7 +227,13 @@ const ControlBar = React.forwardRef(({
                     </Button>
                     {
                         metaItem?.content?.videos?.length > 0 ?
-                            <Button className={styles['control-bar-button']} tabIndex={-1} onMouseDown={onVideosButtonMouseDown} onClick={onToggleSideDrawer}>
+                            <Button
+                                className={classnames(styles['control-bar-button'], { 'disabled': timelineControlsLocked })}
+                                disabled={timelineControlsLocked}
+                                tabIndex={-1}
+                                onMouseDown={onVideosButtonMouseDown}
+                                onClick={onToggleSideDrawer}
+                            >
                                 <Icon className={styles['icon']} name={'episodes'} />
                             </Button>
                             :
@@ -273,6 +287,8 @@ ControlBar.propTypes = {
     watchPartyAvailable: PropTypes.bool,
     watchPartyActive: PropTypes.bool,
     timelineControlsLocked: PropTypes.bool,
+    seekControlsLocked: PropTypes.bool,
+    rateControlsLocked: PropTypes.bool,
     playPauseControlsLocked: PropTypes.bool,
     onToggleWatchPartyMenu: PropTypes.func,
     onMouseOver: PropTypes.func,

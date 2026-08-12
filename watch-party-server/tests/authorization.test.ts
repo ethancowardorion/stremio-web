@@ -126,7 +126,7 @@ test('authority: a guest cannot change playback by crafting a raw command', asyn
     assert.equal(harness.server.service.rooms.get(host.roomId as string)?.playback.revision, before);
 });
 
-test('authority: the host can grant and revoke guest play/pause only', async (t) => {
+test('authority: the host can grant and revoke guest play/pause', async (t) => {
     const { harness, host, guest } = await setUpStartedRoom();
     t.after(() => harness.stop());
 
@@ -185,6 +185,46 @@ test('authority: the host can grant and revoke guest play/pause only', async (t)
         commandId: 'guest-play-revoked',
         action: 'play',
         expectedRevision: (paused.payload.playback as { revision: number }).revision,
+        mediaRevision: 1,
+    });
+    assert.equal(playError.payload.code, 'NOT_HOST');
+});
+
+test('authority: guest seek and speed permissions are independent', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    host.send('room.policy.update', {
+        policy: { allowGuestSeek: true, allowGuestPlaybackRate: true },
+    });
+    await host.waitFor('room.updated');
+    await guest.waitFor('room.updated');
+
+    guest.send('playback.command', {
+        commandId: 'guest-seek-granted',
+        action: 'seek',
+        expectedRevision: 1,
+        mediaRevision: 1,
+        positionMs: 4_000,
+    });
+    const sought = await guest.waitFor('playback.state');
+    assert.equal((sought.payload.playback as { positionMs: number }).positionMs, 4_000);
+    await host.waitFor('playback.state');
+
+    guest.send('playback.command', {
+        commandId: 'guest-rate-granted',
+        action: 'rate',
+        expectedRevision: 2,
+        mediaRevision: 1,
+        rate: 1.25,
+    });
+    const rate = await guest.waitFor('playback.state');
+    assert.equal((rate.payload.playback as { rate: number }).rate, 1.25);
+
+    const playError = await guest.request('playback.command', {
+        commandId: 'guest-play-still-blocked',
+        action: 'play',
+        expectedRevision: 3,
         mediaRevision: 1,
     });
     assert.equal(playError.payload.code, 'NOT_HOST');
@@ -253,7 +293,7 @@ test('room.reset: only the host can return every client to a clean paused snapsh
     assert.deepEqual(guestReset.payload.room, hostReset.payload.room);
 });
 
-test('authority: a guest cannot change media or refresh the source', async (t) => {
+test('authority: a guest cannot end or change media or refresh the source', async (t) => {
     const { harness, host, guest } = await setUpStartedRoom();
     t.after(() => harness.stop());
 
@@ -263,8 +303,10 @@ test('authority: a guest cannot change media or refresh the source', async (t) =
         source: sampleSource(),
     });
     const sourceError = await guest.request('source.refresh', { source: sampleSource() });
+    const endError = await guest.request('media.end', {});
     assert.equal(mediaError.payload.code, 'NOT_HOST');
     assert.equal(sourceError.payload.code, 'NOT_HOST');
+    assert.equal(endError.payload.code, 'NOT_HOST');
     assert.equal(harness.server.service.rooms.get(host.roomId as string)?.mediaRevision, 1);
 });
 
@@ -385,6 +427,29 @@ test('presence: a joining guest appears to the host and a leaving guest disappea
     await guest.request('room.leave', {});
     const left = await host.waitFor('participant.left');
     assert.equal(left.payload.participantId, guest.participantId);
+});
+
+test('presence: the host can remove an online guest', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    host.send('room.participant.remove', { participantId: guest.participantId });
+    const closed = await guest.waitFor('room.closed');
+    const left = await host.waitFor('participant.left');
+    assert.equal(closed.payload.reason, 'removed');
+    assert.equal(left.payload.participantId, guest.participantId);
+    assert.equal(
+        harness.server.service.rooms.get(host.roomId as string)?.getParticipant(guest.participantId as string),
+        undefined,
+    );
+});
+
+test('presence: a guest cannot remove another participant', async (t) => {
+    const { harness, host, guest } = await setUpStartedRoom();
+    t.after(() => harness.stop());
+
+    const error = await guest.request('room.participant.remove', { participantId: host.participantId });
+    assert.equal(error.payload.code, 'NOT_HOST');
 });
 
 test('presence: an explicit host departure ends the room for everyone', async (t) => {

@@ -11,6 +11,8 @@ import { REQUIRED_CAPABILITIES, type PlayerCapabilities, type RoomPolicy } from 
  */
 export const DEFAULT_ROOM_POLICY: RoomPolicy = {
     allowGuestPlayPause: false,
+    allowGuestSeek: false,
+    allowGuestPlaybackRate: false,
     requireAllReadyToStart: true,
     pauseOnGuestBuffering: true,
     pauseOnHostStall: true,
@@ -18,6 +20,8 @@ export const DEFAULT_ROOM_POLICY: RoomPolicy = {
 
 export const normalizeRoomPolicy = (policy: Partial<RoomPolicy> | undefined): RoomPolicy => ({
     allowGuestPlayPause: policy?.allowGuestPlayPause ?? DEFAULT_ROOM_POLICY.allowGuestPlayPause,
+    allowGuestSeek: policy?.allowGuestSeek ?? DEFAULT_ROOM_POLICY.allowGuestSeek,
+    allowGuestPlaybackRate: policy?.allowGuestPlaybackRate ?? DEFAULT_ROOM_POLICY.allowGuestPlaybackRate,
     requireAllReadyToStart: policy?.requireAllReadyToStart ?? DEFAULT_ROOM_POLICY.requireAllReadyToStart,
     pauseOnGuestBuffering: policy?.pauseOnGuestBuffering ?? DEFAULT_ROOM_POLICY.pauseOnGuestBuffering,
     pauseOnHostStall: policy?.pauseOnHostStall ?? DEFAULT_ROOM_POLICY.pauseOnHostStall,

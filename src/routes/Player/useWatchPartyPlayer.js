@@ -46,6 +46,7 @@ const GUEST_OBSERVATION_INTERVAL_MS = 5000;
 const ACTIVATION_TIMEOUT_MS = 1200;
 
 const READINESS_INTERVAL_MS = 1000;
+const READINESS_HEARTBEAT_MS = 5000;
 
 // A short rebuffer is cheaper and less disruptive than stopping the room. Only
 // publish buffering after it persists long enough that somebody would otherwise
@@ -71,6 +72,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     const inRoom = watchParty.inRoom;
     const isHost = watchParty.isHost;
     const isFollower = watchParty.isFollower;
+    const mediaActive = watchParty.mediaActive !== false;
 
     // Live view of player state for callbacks and timers, so they do not have to
     // be rebuilt on every frame of playback.
@@ -191,7 +193,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         const current = watchPartyRef.current;
         const state = videoStateRef.current;
         const player = videoRef.current;
-        if (!current.inRoom || current.playback === null || state.loaded !== true) {
+        if (!current.inRoom || current.mediaActive === false || current.playback === null || state.loaded !== true) {
             return;
         }
         const serverNowMs = current.serverNow();
@@ -243,18 +245,18 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     // Re-evaluate on a fixed tick as well as whenever canonical state changes: the
     // tick catches natural drift, the state change catches commands.
     React.useEffect(() => {
-        if (!inRoom) {
+        if (!inRoom || !mediaActive) {
             return;
         }
         applyCanonicalState();
         const interval = setInterval(applyCanonicalState, CORRECTION_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [inRoom, applyCanonicalState, watchParty.playback]);
+    }, [inRoom, mediaActive, applyCanonicalState, watchParty.playback]);
 
     // A scheduled transition is applied exactly at its effective instant rather
     // than on the next tick, which would add up to one tick of avoidable error.
     React.useEffect(() => {
-        if (!inRoom || watchParty.playback === null) {
+        if (!inRoom || !mediaActive || watchParty.playback === null) {
             return;
         }
         const serverNowMs = watchParty.serverNow();
@@ -267,7 +269,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         }
         const timer = setTimeout(applyCanonicalState, delayMs);
         return () => clearTimeout(timer);
-    }, [inRoom, watchParty.playback, watchParty.serverNow, applyCanonicalState]);
+    }, [inRoom, mediaActive, watchParty.playback, watchParty.serverNow, applyCanonicalState]);
 
     // Hard align after a (re)connection or a media load, before this client is
     // allowed to report itself as synchronized.
@@ -277,14 +279,14 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     // listing an unstable callback here is what previously turned this into a
     // seek on every render.
     React.useEffect(() => {
-        if (!inRoom || video.state.loaded !== true) {
+        if (!inRoom || !mediaActive || video.state.loaded !== true) {
             return;
         }
         pendingSeekRef.current = null;
         playRequestedAtRef.current = null;
         setActivationRequired(false);
         applyCanonicalState({ forceAlign: true });
-    }, [inRoom, video.state.loaded, video.state.stream, watchParty.mediaRevision, watchParty.resetRevision]);
+    }, [inRoom, mediaActive, video.state.loaded, video.state.stream, watchParty.mediaRevision, watchParty.resetRevision]);
 
     // ------------------------------------------------------------- activation
 
@@ -299,7 +301,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     }, [video.state.paused]);
 
     React.useEffect(() => {
-        if (!inRoom || watchParty.playback === null || watchParty.playback.paused) {
+        if (!inRoom || !mediaActive || watchParty.playback === null || watchParty.playback.paused) {
             return;
         }
         const timer = setInterval(() => {
@@ -312,7 +314,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             }
         }, CORRECTION_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [inRoom, watchParty.playback]);
+    }, [inRoom, mediaActive, watchParty.playback]);
 
     // Fallback for browsers that reject the first synchronized play attempt.
     const markReady = React.useCallback(() => {
@@ -324,7 +326,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     // -------------------------------------------------------------- readiness
 
     const aligned = React.useMemo(() => {
-        if (!inRoom || watchParty.playback === null || video.state.loaded !== true) {
+        if (!inRoom || !mediaActive || watchParty.playback === null || video.state.loaded !== true) {
             return false;
         }
         const serverNowMs = watchParty.serverNow();
@@ -343,29 +345,32 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
                 canSetRate: video.state.playbackSpeed !== null,
             })
         );
-    }, [inRoom, watchParty.playback, watchParty.serverNow, video.state]);
+    }, [inRoom, mediaActive, watchParty.playback, watchParty.serverNow, video.state]);
 
     const readiness = React.useMemo(() => computeReadiness({
-        inRoom,
+        inRoom: inRoom && mediaActive,
         supported,
         activated,
         activationRequired,
         loaded: video.state.loaded === true,
         sourceCompatible: sourceCompatibility.compatible,
         aligned,
-    }), [inRoom, supported, activated, activationRequired, video.state.loaded, sourceCompatibility.compatible, aligned]);
+    }), [inRoom, mediaActive, supported, activated, activationRequired, video.state.loaded, sourceCompatibility.compatible, aligned]);
     const ready = readiness.ready;
 
-    // Dropping a connection resets this participant's readiness on the service,
-    // and a publish that never reached the socket must not be remembered as
-    // sent. Forgetting the last published value makes the heartbeat below
-    // re-announce readiness after a reconnect even when nothing changed locally.
+    // Some player implementations leave `buffering` true after a seek or a
+    // pause even while frames continue normally. Guests combine the flag with
+    // timeline drift. The host does not report this flag at all: the service
+    // measures host timeline progress directly, which is the reliable signal
+    // for whether the host has actually stopped.
+    const confirmedBuffering = !isHost && sustainedBuffering && !aligned;
+
     React.useEffect(() => {
         lastReadinessRef.current = null;
     }, [watchParty.status, watchParty.mediaRevision, watchParty.resetRevision]);
 
     React.useEffect(() => {
-        if (!inRoom) {
+        if (!inRoom || !mediaActive) {
             return;
         }
         const publish = () => {
@@ -373,33 +378,33 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
             const next = {
                 ready,
                 loaded: state.loaded === true,
-                buffering: sustainedBuffering,
+                buffering: confirmedBuffering,
                 durationMs: typeof state.duration === 'number' ? state.duration : null,
                 mediaRevision: watchPartyRef.current.mediaRevision,
                 sourceFingerprint: localFingerprint,
             };
             const previous = lastReadinessRef.current;
-            const changed =
-                previous === null ||
-                Object.keys(next).some((key) => next[key] !== previous[key]);
-            if (!changed) {
+            const changed = previous === null ||
+                Object.keys(next).some((key) => next[key] !== previous.value[key]);
+            if (!changed && Date.now() - previous.publishedAtMs < READINESS_HEARTBEAT_MS) {
                 return;
             }
-            // Only remember it as published once it actually reached the socket.
+            // The periodic heartbeat repairs any readiness state that the
+            // service changed after a measured stall.
             if (watchPartyRef.current.actions.setReady(next) !== null) {
-                lastReadinessRef.current = next;
+                lastReadinessRef.current = { value: next, publishedAtMs: Date.now() };
             }
         };
 
         publish();
         const interval = setInterval(publish, READINESS_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [inRoom, ready, sustainedBuffering, localFingerprint, watchParty.mediaRevision, watchParty.resetRevision]);
+    }, [inRoom, mediaActive, ready, confirmedBuffering, localFingerprint, watchParty.mediaRevision, watchParty.resetRevision]);
 
     // --------------------------------------------------------- observations
 
     React.useEffect(() => {
-        if (!inRoom) {
+        if (!inRoom || !mediaActive) {
             return;
         }
         const intervalMs = isHost ? HOST_OBSERVATION_INTERVAL_MS : GUEST_OBSERVATION_INTERVAL_MS;
@@ -412,14 +417,14 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
                 positionMs: state.time,
                 paused: state.paused === true,
                 rate: typeof state.playbackSpeed === 'number' ? state.playbackSpeed : 1,
-                buffering: sustainedBuffering,
+                buffering: confirmedBuffering,
                 durationMs: typeof state.duration === 'number' ? state.duration : null,
                 mediaRevision: watchPartyRef.current.mediaRevision,
             });
         };
         const interval = setInterval(publish, intervalMs);
         return () => clearInterval(interval);
-    }, [inRoom, isHost, sustainedBuffering]);
+    }, [inRoom, mediaActive, isHost, confirmedBuffering]);
 
     // ------------------------------------------------------ player -> canonical
 
@@ -432,10 +437,14 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
     const handleTimelineIntent = React.useCallback((action, options) => {
         const current = watchPartyRef.current;
         const decision = routeTimelineIntent({
-            inRoom: current.inRoom,
+            inRoom: current.inRoom && current.mediaActive !== false,
             isHost: current.isHost,
             allowGuestPlayPause: current.room !== null &&
                 current.room.policy.allowGuestPlayPause === true,
+            allowGuestSeek: current.room !== null &&
+                current.room.policy.allowGuestSeek === true,
+            allowGuestPlaybackRate: current.room !== null &&
+                current.room.policy.allowGuestPlaybackRate === true,
             action,
             options,
             videoState: videoStateRef.current,
@@ -455,7 +464,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         if (!inRoom || !isHost || localSourceBundle === null || watchParty.source === null) {
             return;
         }
-        if (localSourceBundle.streamParam === watchParty.source.streamParam) {
+        if (watchParty.mediaActive && localSourceBundle.streamParam === watchParty.source.streamParam) {
             publishedFingerprintRef.current = localSourceBundle.streamParam;
             return;
         }
@@ -464,7 +473,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         }
         publishedFingerprintRef.current = localSourceBundle.streamParam;
         watchParty.actions.changeMedia({ media: localMedia, source: localSourceBundle });
-    }, [inRoom, isHost, localSourceBundle, localMedia, watchParty.source, watchParty.actions]);
+    }, [inRoom, isHost, localSourceBundle, localMedia, watchParty.source, watchParty.mediaActive, watchParty.actions]);
 
     // Guests follow the room's source by navigating; the route they build is
     // their own, so their local streaming server resolves the stream.
@@ -548,9 +557,13 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         // Party participants must never autoplay: everyone loads paused and
         // starts together once the ready barrier is satisfied.
         autoplay: !inRoom,
-        // Guest seek/rate/next controls stay locked. Play/pause has a separate
-        // lock because the host can grant that narrower permission.
+        // Media changes stay host-owned. Timeline permissions are separate so
+        // the host can grant only the controls wanted for this room.
         controlsLocked: isFollower,
+        seekControlsLocked: isFollower &&
+            !(watchParty.room !== null && watchParty.room.policy.allowGuestSeek === true),
+        rateControlsLocked: isFollower &&
+            !(watchParty.room !== null && watchParty.room.policy.allowGuestPlaybackRate === true),
         playPauseControlsLocked: isFollower &&
             !(watchParty.room !== null && watchParty.room.policy.allowGuestPlayPause === true),
         ready,
@@ -565,6 +578,7 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         host: watchParty.host,
         room: watchParty.room,
         media: watchParty.media,
+        mediaActive: watchParty.mediaActive,
         playback: watchParty.playback,
         status: watchParty.status,
         invitationUrl: watchParty.invitationUrl,
@@ -578,8 +592,10 @@ const useWatchPartyPlayer = ({ player, video, urlParams, casting }) => {
         refreshSource,
         leave: watchParty.actions.leave,
         closeRoom: watchParty.actions.closeRoom,
+        endMedia: watchParty.actions.endMedia,
         resetRoom,
         updatePolicy: watchParty.actions.updatePolicy,
+        removeParticipant: watchParty.actions.removeParticipant,
         retryConnection: watchParty.actions.retryConnection,
     };
 };

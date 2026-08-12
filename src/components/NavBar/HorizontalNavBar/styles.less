@@ -118,6 +118,22 @@
                 .active();
             }
         }
+
+        &.watch-party-indicator {
+            background-color: fade(@color-accent3, 14%);
+            opacity: 1;
+
+            .icon {
+                color: @color-accent3;
+                opacity: 1;
+            }
+
+            @media (pointer: fine) {
+                &:hover {
+                    background-color: fade(@color-accent3, 24%);
+                }
+            }
+        }
     }
 }
 

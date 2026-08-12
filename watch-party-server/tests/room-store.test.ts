@@ -259,6 +259,134 @@ test('barrier: once the room has started, a guest that drops out cannot block a 
     assert.equal(result.outcome, 'applied');
 });
 
+test('barrier: a recovered host becomes ready and can resume without strict alignment', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c2', action: 'pause', expectedRevision: 2, mediaRevision: 1,
+    }, T0 + 1_000);
+    room.updateReadiness(room.hostParticipantId, {
+        ready: false,
+        loaded: true,
+        buffering: false,
+        durationMs: DURATION_MS,
+        mediaRevision: 1,
+        sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 2_000);
+    assert.equal(room.hostParticipant?.ready, true);
+
+    const result = room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c3', action: 'play', expectedRevision: 3, mediaRevision: 1, leadMs: 0,
+    }, T0 + 3_000);
+    assert.equal(result.outcome, 'applied');
+});
+
+test('barrier: a genuinely buffering host stays unready and cannot resume', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c2', action: 'pause', expectedRevision: 2, mediaRevision: 1,
+    }, T0 + 1_000);
+    room.updateReadiness(room.hostParticipantId, {
+        ready: true,
+        loaded: true,
+        buffering: true,
+        durationMs: DURATION_MS,
+        mediaRevision: 1,
+        sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 2_000);
+
+    assert.equal(room.hostParticipant?.ready, false);
+    expectCode(() => room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c3', action: 'play', expectedRevision: 3, mediaRevision: 1, leadMs: 0,
+    }, T0 + 3_000), 'READINESS_BARRIER');
+});
+
+test('media end: the room becomes idle until the host changes media', () => {
+    const room = makeReadyRoom();
+    room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
+    }, T0);
+
+    assert.equal(room.endMedia(room.hostParticipantId, T0 + 10_000), true);
+    assert.equal(room.mediaActive, false);
+    assert.equal(room.playback.paused, true);
+    assert.equal(room.toSnapshot(T0 + 10_000).mediaActive, false);
+    expectCode(() => room.applyHostCommand(room.hostParticipantId, {
+        commandId: 'c2', action: 'play', expectedRevision: room.playback.revision, mediaRevision: 1,
+    }, T0 + 10_001), 'READINESS_BARRIER');
+
+    room.changeMedia(room.hostParticipantId, {
+        mediaChangeId: 'next', media: media({ videoId: 'next' }), source: source({ fingerprint: 'torrent:def:1' }),
+    }, T0 + 11_000);
+    assert.equal(room.mediaActive, true);
+});
+
+test('media end: a guest cannot end the current media', () => {
+    const room = makeReadyRoom();
+    const guest = room.join({
+        inviteSecret: room.inviteSecret,
+        displayName: 'Guest',
+        deviceLabel: null,
+        capabilities: capabilities(),
+        nowMs: T0,
+    });
+    expectCode(() => room.endMedia(guest.participantId, T0 + 1), 'NOT_HOST');
+});
+
+test('authority: guest seek and rate grants do not grant source or play/pause control', () => {
+    const room = makeReadyRoom({ allowGuestSeek: true, allowGuestPlaybackRate: true });
+    const guest = room.join({
+        inviteSecret: room.inviteSecret,
+        displayName: 'Guest',
+        deviceLabel: null,
+        capabilities: capabilities(),
+        nowMs: T0,
+    });
+
+    const seek = room.applyHostCommand(guest.participantId, {
+        commandId: 'guest-seek', action: 'seek', expectedRevision: 1, mediaRevision: 1, positionMs: 4_000,
+    }, T0);
+    assert.equal(seek.state.positionMs, 4_000);
+    const rate = room.applyHostCommand(guest.participantId, {
+        commandId: 'guest-rate', action: 'rate', expectedRevision: 2, mediaRevision: 1, rate: 1.25,
+    }, T0 + 1);
+    assert.equal(rate.state.rate, 1.25);
+    expectCode(
+        () => room.applyHostCommand(guest.participantId, {
+            commandId: 'guest-play', action: 'play', expectedRevision: 3, mediaRevision: 1,
+        }, T0 + 2),
+        'NOT_HOST',
+    );
+    expectCode(
+        () => room.changeMedia(guest.participantId, {
+            mediaChangeId: 'guest-media', media: media(), source: source(),
+        }, T0 + 3),
+        'NOT_HOST',
+    );
+});
+
+test('presence: the host can remove a guest but not itself', () => {
+    const room = makeReadyRoom();
+    const guest = room.join({
+        inviteSecret: room.inviteSecret,
+        displayName: 'Guest',
+        deviceLabel: null,
+        capabilities: capabilities(),
+        nowMs: T0,
+    });
+    room.removeParticipantByHost(room.hostParticipantId, guest.participantId, T0 + 1);
+    assert.equal(room.getParticipant(guest.participantId), undefined);
+    expectCode(
+        () => room.removeParticipantByHost(room.hostParticipantId, room.hostParticipantId, T0 + 2),
+        'VALIDATION_FAILED',
+    );
+});
+
 test('barrier: a media change re-arms it for the new episode', () => {
     const room = makeReadyRoom();
     room.applyHostCommand(room.hostParticipantId, { commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1 }, T0);
@@ -308,11 +436,14 @@ test('buffering: a room can opt out of guest-triggered pauses', () => {
         nowMs: T0,
     });
     room.updateReadiness(guest.participantId, {
-        ready: true, loaded: true, buffering: true, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+        ready: true, loaded: true, buffering: false, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
     }, T0);
     room.applyHostCommand(room.hostParticipantId, {
         commandId: 'c1', action: 'play', expectedRevision: 1, mediaRevision: 1, leadMs: 0,
     }, T0);
+    room.updateReadiness(guest.participantId, {
+        ready: true, loaded: true, buffering: true, durationMs: DURATION_MS, mediaRevision: 1, sourceFingerprint: 'torrent:abc:0',
+    }, T0 + 750);
 
     assert.deepEqual(room.pauseForBuffering(guest.participantId, T0 + 750), { changed: false, reason: null });
     assert.equal(room.playback.paused, false);
@@ -474,6 +605,8 @@ test('stall pause: a host that stops making progress pauses the room', () => {
     assert.equal(paused.reason, 'host_stalled');
     assert.equal(room.playback.paused, true);
     assert.equal(room.pauseReason, 'host_stalled');
+    assert.equal(room.hostParticipant?.buffering, true);
+    assert.equal(room.hostParticipant?.ready, false);
     // Paused where the host actually is, which is the position it has data for.
     assert.equal(room.playback.positionMs, 2_150);
 });

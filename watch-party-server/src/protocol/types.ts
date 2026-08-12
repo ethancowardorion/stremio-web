@@ -103,6 +103,10 @@ export type PlaybackState = {
 export type RoomPolicy = {
     /** Whether guests may publish play and pause commands. */
     allowGuestPlayPause: boolean;
+    /** Whether guests may publish seek commands. */
+    allowGuestSeek: boolean;
+    /** Whether guests may change the canonical playback rate. */
+    allowGuestPlaybackRate: boolean;
     /** Whether the first start waits for every guest, or only for the host. */
     requireAllReadyToStart: boolean;
     /** Whether sustained buffering by a supported guest freezes the room. */
@@ -146,6 +150,8 @@ export type RoomSnapshot = {
     expiresAtServerMs: number;
     revision: number;
     mediaRevision: number;
+    /** False while the party waits for the host to select new content. */
+    mediaActive: boolean;
     media: MediaDescriptor;
     source: SourceBundle;
     playback: PlaybackState;
@@ -165,6 +171,8 @@ export const ROOM_CLOSE_REASONS = [
     'host_left',
     /** The host explicitly ended the room. */
     'host_ended',
+    /** The host removed this participant from the room. */
+    'removed',
     /** This client left of its own accord; the room may still be running. */
     'left',
     'server_shutdown',
@@ -181,9 +189,11 @@ export const CLIENT_MESSAGE_TYPES = [
     'room.close',
     'room.reset',
     'room.policy.update',
+    'room.participant.remove',
     'participant.ready',
     'playback.command',
     'playback.observation',
+    'media.end',
     'media.change',
     'source.refresh',
 ] as const;
@@ -200,6 +210,7 @@ export const SERVER_MESSAGE_TYPES = [
     'participant.updated',
     'participant.left',
     'playback.state',
+    'media.ended',
     'media.changed',
     'source.updated',
     'room.closed',

@@ -8,6 +8,8 @@ const { default: Icon } = require('@stremio/stremio-icons/react');
 const { Button, Image } = require('stremio/components');
 const { useFullscreen } = require('stremio/common/Fullscreen');
 const { useHorizontalNavGamepadNavigation } = require('stremio/services/GamepadNavigation');
+const { useWatchParty } = require('stremio/services/WatchParty/WatchPartyContext');
+const { guestPlayerPath } = require('stremio/services/WatchParty/mediaIdentity');
 const SearchBar = require('./SearchBar');
 const NavMenu = require('./NavMenu');
 const styles = require('./styles');
@@ -15,6 +17,16 @@ const { t } = require('i18next');
 
 const HorizontalNavBar = React.memo(({ className, route, query, title, backButton, searchBar, fullscreenButton, navMenu, originPath, hdrInfo, ...props }) => {
     const navigate = useNavigate();
+    const watchParty = useWatchParty();
+    const watchPartyPlayerPath = React.useMemo(
+        () => guestPlayerPath(watchParty.source, watchParty.media),
+        [watchParty.source, watchParty.media]
+    );
+    const onWatchPartyClick = React.useCallback(() => {
+        if (watchPartyPlayerPath !== null) {
+            navigate(watchPartyPlayerPath);
+        }
+    }, [navigate, watchPartyPlayerPath]);
     const backButtonOnClick = React.useCallback(() => {
         if (originPath) {
             navigate(originPath, { replace: true });
@@ -53,7 +65,7 @@ const HorizontalNavBar = React.memo(({ className, route, query, title, backButto
                     null
             }
             {
-                searchBar && route !== 'addons' ?
+                searchBar && route !== 'addons' && !watchParty.isFollower ?
                     <SearchBar className={styles['search-bar']} query={query} active={route === 'search'} />
                     :
                     null
@@ -64,6 +76,21 @@ const HorizontalNavBar = React.memo(({ className, route, query, title, backButto
                         <div className={styles['hdr-indicator']} title={hdrInfo.gamma === 'pq' ? 'HDR10' : 'HLG'}>
                             <Icon className={styles['icon']} name={'hdr'} />
                         </div>
+                        :
+                        null
+                }
+                {
+                    watchParty.inRoom &&
+                    !(typeof title === 'string' && title.length > 0) ?
+                        <Button
+                            className={classnames(styles['button-container'], styles['watch-party-indicator'])}
+                            title={t('WATCH_PARTY_ACTIVE')}
+                            tabIndex={-1}
+                            disabled={!watchParty.mediaActive || watchPartyPlayerPath === null}
+                            onClick={onWatchPartyClick}
+                        >
+                            <Icon className={styles['icon']} name={'person-outline'} />
+                        </Button>
                         :
                         null
                 }

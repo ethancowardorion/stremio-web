@@ -55,6 +55,7 @@ const snapshotPayload = (overrides = {}) => ({
         expiresAtServerMs: 99_000,
         revision: 1,
         mediaRevision: 1,
+        mediaActive: true,
         media: { type: 'series', metaId: 'tt1', videoId: 'tt1:1:1', title: 'Pilot', expectedDurationMs: 1000, live: false },
         source: { fingerprint: 'torrent:abc:0', streamParam: 'encoded' },
         playback: playback(),
@@ -343,6 +344,21 @@ describe('watch party reducer: revision ordering', () => {
         }));
         expect(selectSelf(changed).ready).toBe(false);
         expect(selectSelf(changed).sourceFingerprint).toBeNull();
+    });
+
+    it('moves the room to idle when the host ends the media', () => {
+        const readyState = reduce(joined(), message(SERVER_MESSAGE.PARTICIPANT_UPDATED, {
+            participant: participant({ ready: true, loaded: true }),
+        }));
+        const endedState = reduce(readyState, message(SERVER_MESSAGE.MEDIA_ENDED, {
+            mediaRevision: 1,
+            playback: playback({ revision: 2, paused: true, positionMs: 1000 }),
+            serverTimeMs: 2000,
+        }));
+
+        expect(endedState.mediaActive).toBe(false);
+        expect(endedState.playback.paused).toBe(true);
+        expect(selectSelf(endedState)).toMatchObject({ ready: false, loaded: false, buffering: false });
     });
 
     it('ignores a stale or duplicate media change', () => {

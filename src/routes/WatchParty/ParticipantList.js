@@ -3,6 +3,7 @@
 const React = require('react');
 const PropTypes = require('prop-types');
 const classnames = require('classnames');
+const { default: Icon } = require('@stremio/stremio-icons/react');
 const { useTranslation } = require('react-i18next');
 const styles = require('./styles');
 
@@ -22,11 +23,8 @@ const PARTICIPANT_STATUS = {
 // Ordered by severity: a disconnected participant is not "buffering", and an
 // unsupported one is never "ready".
 //
-// Ready deliberately outranks buffering. A browser parks a paused media element
-// with only metadata buffered, so a participant waiting at the start is both
-// ready and technically buffering; showing "Buffering" there would suggest a
-// problem that does not exist. Once playback is running a stalled participant
-// is not ready, so buffering surfaces exactly when it means something.
+// Buffering outranks ready. The client reports buffering only after a sustained
+// active-playback stall, so this state means that playback is genuinely blocked.
 const participantStatus = (participant) => {
     if (!participant.connected) {
         return PARTICIPANT_STATUS.OFFLINE;
@@ -34,16 +32,16 @@ const participantStatus = (participant) => {
     if (!participant.supported) {
         return PARTICIPANT_STATUS.UNSUPPORTED;
     }
-    if (participant.ready) {
-        return PARTICIPANT_STATUS.READY;
-    }
     if (participant.buffering) {
         return PARTICIPANT_STATUS.BUFFERING;
+    }
+    if (participant.ready) {
+        return PARTICIPANT_STATUS.READY;
     }
     return PARTICIPANT_STATUS.LOADING;
 };
 
-const ParticipantList = ({ className, participants, selfParticipantId }) => {
+const ParticipantList = ({ className, participants, selfParticipantId, onRemoveParticipant }) => {
     const { t } = useTranslation();
     return (
         <ul className={classnames(className, styles['participant-list'])}>
@@ -53,29 +51,49 @@ const ParticipantList = ({ className, participants, selfParticipantId }) => {
                     return (
                         <li key={participant.participantId} className={styles['participant']}>
                             <div className={styles['participant-identity']}>
-                                <span className={styles['participant-name']}>{participant.displayName}</span>
+                                <div className={styles['participant-primary']}>
+                                    <span className={styles['participant-name']}>{participant.displayName}</span>
+                                    {
+                                        participant.participantId === selfParticipantId ?
+                                            <span className={styles['participant-badge']}>{t('WATCH_PARTY_YOU')}</span>
+                                            :
+                                            null
+                                    }
+                                    {
+                                        participant.isHost ?
+                                            <span className={styles['participant-badge']}>{t('WATCH_PARTY_HOST')}</span>
+                                            :
+                                            null
+                                    }
+                                </div>
                                 {
                                     typeof participant.deviceLabel === 'string' && participant.deviceLabel.length > 0 ?
                                         <span className={styles['participant-device']}>{participant.deviceLabel}</span>
                                         :
                                         null
                                 }
+                            </div>
+                            <div className={styles['participant-actions']}>
+                                <span className={classnames(styles['participant-status'], styles[status.name])}>
+                                    {t(status.translationKey)}
+                                </span>
                                 {
-                                    participant.participantId === selfParticipantId ?
-                                        <span className={styles['participant-badge']}>{t('WATCH_PARTY_YOU')}</span>
-                                        :
-                                        null
-                                }
-                                {
-                                    participant.isHost ?
-                                        <span className={styles['participant-badge']}>{t('WATCH_PARTY_HOST')}</span>
+                                    typeof onRemoveParticipant === 'function' &&
+                                    !participant.isHost &&
+                                    participant.participantId !== selfParticipantId ?
+                                        <button
+                                            type={'button'}
+                                            className={styles['participant-remove']}
+                                            title={t('WATCH_PARTY_REMOVE_PARTICIPANT')}
+                                            aria-label={t('WATCH_PARTY_REMOVE_PARTICIPANT')}
+                                            onClick={() => onRemoveParticipant(participant.participantId)}
+                                        >
+                                            <Icon className={styles['participant-remove-icon']} name={'close'} />
+                                        </button>
                                         :
                                         null
                                 }
                             </div>
-                            <span className={classnames(styles['participant-status'], styles[status.name])}>
-                                {t(status.translationKey)}
-                            </span>
                         </li>
                     );
                 })
@@ -88,6 +106,7 @@ ParticipantList.propTypes = {
     className: PropTypes.string,
     participants: PropTypes.array.isRequired,
     selfParticipantId: PropTypes.string,
+    onRemoveParticipant: PropTypes.func,
 };
 
 module.exports = ParticipantList;

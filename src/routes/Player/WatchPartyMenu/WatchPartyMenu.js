@@ -68,10 +68,17 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
         }
     }, [watchParty.invitationUrl]);
 
-    const onGuestPlayPauseToggle = React.useCallback(() => {
-        const enabled = watchParty.room !== null &&
-            watchParty.room.policy.allowGuestPlayPause === true;
-        watchParty.updatePolicy({ allowGuestPlayPause: !enabled });
+    const onGuestPlaybackControlToggle = React.useCallback(() => {
+        const policy = watchParty.room === null ? null : watchParty.room.policy;
+        const enabled = policy !== null &&
+            policy.allowGuestPlayPause === true &&
+            policy.allowGuestSeek === true &&
+            policy.allowGuestPlaybackRate === true;
+        watchParty.updatePolicy({
+            allowGuestPlayPause: !enabled,
+            allowGuestSeek: !enabled,
+            allowGuestPlaybackRate: !enabled,
+        });
     }, [watchParty.room, watchParty.updatePolicy]);
 
     const sourceKey = SOURCE_TRANSLATION_KEYS[watchParty.sourceCompatibility.status] || null;
@@ -144,6 +151,7 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                             <ParticipantList
                                 participants={watchParty.participants}
                                 selfParticipantId={watchParty.self === null ? null : watchParty.self.participantId}
+                                onRemoveParticipant={watchParty.isHost ? watchParty.removeParticipant : null}
                             />
                         </div>
 
@@ -153,10 +161,12 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                                     <Toggle
                                         className={styles['policy-toggle']}
                                         checked={watchParty.room !== null &&
-                                            watchParty.room.policy.allowGuestPlayPause === true}
-                                        onClick={onGuestPlayPauseToggle}
+                                            watchParty.room.policy.allowGuestPlayPause === true &&
+                                            watchParty.room.policy.allowGuestSeek === true &&
+                                            watchParty.room.policy.allowGuestPlaybackRate === true}
+                                        onClick={onGuestPlaybackControlToggle}
                                     >
-                                        <span>{t('WATCH_PARTY_ALLOW_GUEST_PLAY_PAUSE')}</span>
+                                        <span>{t('WATCH_PARTY_ALLOW_GUEST_CONTROL')}</span>
                                     </Toggle>
                                 </div>
                                 :
@@ -189,20 +199,6 @@ const WatchPartyMenu = ({ className, watchParty, casting, onMouseDown }) => {
                                 :
                                 null
                         }
-                        {
-                            watchParty.isFollower && !watchParty.ready ?
-                                <div className={styles['notice']}>{t('WATCH_PARTY_WAITING_FOR_HOST')}</div>
-                                :
-                                null
-                        }
-                        {
-                            watchParty.isFollower &&
-                            !(watchParty.room !== null && watchParty.room.policy.allowGuestPlayPause === true) ?
-                                <div className={styles['notice']}>{t('WATCH_PARTY_CONTROLS_LOCKED')}</div>
-                                :
-                                null
-                        }
-
                         <div className={styles['section']}>
                             {
                                 watchParty.activationRequired ?

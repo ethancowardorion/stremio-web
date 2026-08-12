@@ -45,13 +45,13 @@ const WATCH_PARTY_TRANSLATIONS = {
         WATCH_PARTY_STATUS_OFFLINE: 'Offline',
         WATCH_PARTY_STATUS_UNSUPPORTED: 'Unsupported player',
 
-        WATCH_PARTY_WAITING_FOR_HOST: 'Waiting for the host to start',
         WATCH_PARTY_PAUSED_HOST_STALLED: 'Paused: the host could not keep up with this stream. A smaller or already browser-friendly file will play far better for everyone.',
         WATCH_PARTY_PAUSED_BUFFERING: 'Paused because someone is buffering. The host can resume once everyone has caught up.',
         WATCH_PARTY_WAITING_FOR_PARTICIPANTS: 'Waiting for everyone to be ready',
-        WATCH_PARTY_CONTROLS_LOCKED: 'The host controls playback',
-        WATCH_PARTY_ALLOW_GUEST_PLAY_PAUSE: 'Allow guests to play and pause',
+        WATCH_PARTY_ALLOW_GUEST_CONTROL: 'Allow guests to control playback',
         WATCH_PARTY_REQUIRE_ALL_READY: 'Wait for everyone before starting',
+        WATCH_PARTY_REMOVE_PARTICIPANT: 'Remove',
+        WATCH_PARTY_ACTIVE: 'Watch party active',
 
         WATCH_PARTY_ACTIVATION_REQUIRED: 'Your browser blocked playback. Click to start watching together.',
         WATCH_PARTY_ACTIVATE: 'Start synchronized playback',
@@ -71,6 +71,7 @@ const WATCH_PARTY_TRANSLATIONS = {
         WATCH_PARTY_ROOM_CLOSED_EXPIRED: 'This watch party is no longer available.',
         WATCH_PARTY_ROOM_CLOSED_SERVER: 'The watch party service restarted. Start a new party to continue.',
         WATCH_PARTY_ROOM_CLOSED_LEFT: 'You left the watch party.',
+        WATCH_PARTY_ROOM_CLOSED_REMOVED: 'The host removed you from the watch party.',
 
         WATCH_PARTY_ERROR_INVALID_INVITATION: 'This invitation is missing or incomplete.',
         WATCH_PARTY_ERROR_ROOM_NOT_FOUND: 'This watch party is no longer available.',

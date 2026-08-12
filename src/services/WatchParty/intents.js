@@ -27,7 +27,16 @@ const OUTCOME = {
 // itself, either because a command was published or because the intent was
 // refused.
 const routeTimelineIntent = (input) => {
-    const { inRoom, isHost, allowGuestPlayPause, action, options, videoState } = input;
+    const {
+        inRoom,
+        isHost,
+        allowGuestPlayPause,
+        allowGuestSeek,
+        allowGuestPlaybackRate,
+        action,
+        options,
+        videoState,
+    } = input;
 
     if (!TIMELINE_ACTIONS.includes(action)) {
         return { outcome: OUTCOME.APPLY_LOCALLY, handled: false, command: null };
@@ -35,7 +44,11 @@ const routeTimelineIntent = (input) => {
     if (!inRoom) {
         return { outcome: OUTCOME.APPLY_LOCALLY, handled: false, command: null };
     }
-    if (!isHost && !(allowGuestPlayPause === true && (action === 'play' || action === 'pause'))) {
+    const guestActionAllowed =
+        (allowGuestPlayPause === true && (action === 'play' || action === 'pause')) ||
+        (allowGuestSeek === true && action === 'seek') ||
+        (allowGuestPlaybackRate === true && action === 'rate');
+    if (!isHost && !guestActionAllowed) {
         return { outcome: OUTCOME.BLOCKED, handled: true, command: null };
     }
 

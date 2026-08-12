@@ -42,9 +42,11 @@ const RATE_BUCKETS: Record<ClientMessageType, RateBucketName> = {
     'room.close': 'command',
     'room.reset': 'command',
     'room.policy.update': 'command',
+    'room.participant.remove': 'command',
     'participant.ready': 'status',
     'playback.command': 'command',
     'playback.observation': 'status',
+    'media.end': 'command',
     'media.change': 'command',
     'source.refresh': 'command',
 };
@@ -199,6 +201,13 @@ export class WatchPartyService {
                     nowMs,
                 );
                 return;
+            case 'room.participant.remove':
+                this.handleParticipantRemove(
+                    session,
+                    validateClientMessage(this.schemas, type, envelope.payload),
+                    nowMs,
+                );
+                return;
             case 'participant.ready':
                 this.handleParticipantReady(session, validateClientMessage(this.schemas, type, envelope.payload), nowMs);
                 return;
@@ -207,6 +216,9 @@ export class WatchPartyService {
                 return;
             case 'playback.observation':
                 this.handlePlaybackObservation(session, validateClientMessage(this.schemas, type, envelope.payload), nowMs);
+                return;
+            case 'media.end':
+                this.handleMediaEnd(session, nowMs);
                 return;
             case 'media.change':
                 this.handleMediaChange(session, validateClientMessage(this.schemas, type, envelope.payload), nowMs);
@@ -504,6 +516,38 @@ export class WatchPartyService {
         this.broadcast(room, 'room.updated', { policy });
     }
 
+    private handleParticipantRemove(
+        session: SessionRecord,
+        payload: ClientMessagePayload<'room.participant.remove'>,
+        nowMs: number,
+    ): void {
+        const { room, participantId: hostParticipantId } = this.requireRoomMembership(session);
+        const participant = room.removeParticipantByHost(hostParticipantId, payload.participantId, nowMs);
+
+        for (const record of this.sessions.listForRoom(room.roomId)) {
+            if (record.participantId !== payload.participantId) {
+                continue;
+            }
+            if (record.connected) {
+                this.connectionsBySessionId.get(record.sessionId)?.send('room.closed', {
+                    reason: 'removed' satisfies RoomCloseReason,
+                });
+                this.metrics.participantsOpen.dec();
+                record.roomId = null;
+                record.participantId = null;
+            }
+            // Keep a disconnected session bound until it resumes. The resume
+            // path sees the missing participant and sends room.closed, which
+            // clears the stale room state on that client.
+        }
+
+        this.broadcast(room, 'participant.left', { participantId: payload.participantId });
+        this.logger.info('participant_removed', {
+            roomId: room.roomId,
+            participantId: participant.participantId,
+        });
+    }
+
     private handleParticipantReady(
         session: SessionRecord,
         payload: ClientMessagePayload<'participant.ready'>,
@@ -600,6 +644,11 @@ export class WatchPartyService {
                     ...(result.reason === null ? {} : { reason: result.reason }),
                 });
             }
+            if (result.reason === 'host_stalled' && room.hostParticipant !== undefined) {
+                this.broadcast(room, 'participant.updated', {
+                    participant: room.toParticipantPublic(room.hostParticipant),
+                });
+            }
             if (result.reason !== null) {
                 this.logger.info('room_paused', { roomId: room.roomId, reason: result.reason });
             }
@@ -632,6 +681,19 @@ export class WatchPartyService {
             serverTimeMs: this.now(),
         });
         this.logger.info('media_changed', { roomId: room.roomId, mediaRevision: room.mediaRevision });
+    }
+
+    private handleMediaEnd(session: SessionRecord, nowMs: number): void {
+        const { room, participantId } = this.requireRoomMembership(session);
+        if (!room.endMedia(participantId, nowMs)) {
+            return;
+        }
+        this.broadcast(room, 'media.ended', {
+            mediaRevision: room.mediaRevision,
+            playback: room.playback,
+            serverTimeMs: this.now(),
+        });
+        this.logger.info('media_ended', { roomId: room.roomId, mediaRevision: room.mediaRevision });
     }
 
     private handleSourceRefresh(
@@ -668,6 +730,9 @@ export class WatchPartyService {
                 continue;
             }
             const participant = room.getParticipant(record.participantId);
+            if (participant === undefined) {
+                continue;
+            }
             room.removeParticipant(record.participantId, nowMs);
             if (participant?.isHost === true) {
                 // The host's resume window closed: the room cannot continue.

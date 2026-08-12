@@ -94,11 +94,24 @@ test('schemas: a valid room.create passes and normalizes the display name', () =
     assert.equal(payload.source.kind, 'torrent');
 });
 
-test('schemas: a room policy update accepts the guest control setting', () => {
+test('schemas: a room policy update accepts separate guest timeline settings', () => {
     const payload = validateClientMessage(schemas, 'room.policy.update', {
-        policy: { allowGuestPlayPause: true },
+        policy: { allowGuestPlayPause: true, allowGuestSeek: true, allowGuestPlaybackRate: true },
     });
-    assert.deepEqual(payload, { policy: { allowGuestPlayPause: true } });
+    assert.deepEqual(payload, {
+        policy: { allowGuestPlayPause: true, allowGuestSeek: true, allowGuestPlaybackRate: true },
+    });
+});
+
+test('schemas: participant removal requires a valid participant id', () => {
+    assert.deepEqual(
+        validateClientMessage(schemas, 'room.participant.remove', { participantId: 'participant_1' }),
+        { participantId: 'participant_1' },
+    );
+    expectCode(
+        () => validateClientMessage(schemas, 'room.participant.remove', { participantId: 'not valid' }),
+        'VALIDATION_FAILED',
+    );
 });
 
 test('schemas: room.create defaults an omitted device label to null', () => {
@@ -172,6 +185,11 @@ test('schemas: playback.command rejects an unknown action', () => {
             }),
         'VALIDATION_FAILED',
     );
+});
+
+test('schemas: media.end accepts only an empty payload', () => {
+    assert.deepEqual(validateClientMessage(schemas, 'media.end', {}), {});
+    expectCode(() => validateClientMessage(schemas, 'media.end', { mediaRevision: 1 }), 'VALIDATION_FAILED');
 });
 
 test('schemas: identifiers must be url-safe and bounded', () => {
