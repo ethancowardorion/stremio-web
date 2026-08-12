@@ -29,6 +29,12 @@ The provider is mounted above the routes in `src/App/App.js`, so the socket, the
 room and the clock estimate all survive navigation between the join screen, meta
 details and the player.
 
+The party also stays active when the host changes episodes or opens the homepage.
+When media ends, the room becomes idle and guests return to the homepage. Guests
+cannot select media while they remain in the room. The host's next selection
+returns all guests to the shared player. Only leaving, ending, host removal,
+expiry, or loss of the host session ends membership.
+
 The player bridge is a single interception point. Every timeline intent — seek
 bar, keyboard, gamepad, media keys, video click — already funnels through
 `onPlayRequested`, `onPauseRequested`, `commitSeek`, `onPlaybackSpeedChanged` and
@@ -36,7 +42,9 @@ bar, keyboard, gamepad, media keys, video click — already funnels through
 
 ## Authority model
 
-Only the host changes canonical play, pause, seek, rate and media. This is
+Only the host changes media or its source. By default, only the host changes
+canonical play, pause, seek, and rate. One room setting grants all guest playback
+controls together. This is
 enforced in three independent places, so a failure in one is not a failure of the
 feature:
 
@@ -49,8 +57,9 @@ The host is intercepted too. It publishes a command and then follows canonical
 state like everyone else, rather than applying the change locally — otherwise it
 would start playing a scheduled lead time before every guest.
 
-Volume, mute, subtitles, audio track, fullscreen and video scale stay local and
-untouched.
+Volume, mute, subtitles, audio track, fullscreen, and video scale stay local.
+An explicit audio-track choice is repeated during manifest loading because some
+player implementations ignore the first request while their track list changes.
 
 ## Synchronization
 
@@ -72,10 +81,18 @@ untouched.
   stalled reports a position that stopped advancing; following it backwards
   would drag everyone else back, and since they keep playing forward the result
   is a sawtooth that never settles.
-- Buffering lasting 500 ms or less is ignored. Once a host or guest buffers beyond
-  that grace period, the room freezes so nobody continues consuming content.
+- Guest buffering lasting 500 ms or less is ignored. A longer player buffering
+  flag must also have measurable timeline drift before the client reports it.
+  The service detects host stalls from measured playback progress and does not
+  trust the host player's buffering flag. A confirmed stall freezes the room.
   The host can resume after the participant catches up. Rooms may opt out of
   guest-triggered pauses with the `pauseOnGuestBuffering` policy.
+- The strict readiness barrier applies to the first start of each media revision.
+  After playback has started, a recovered host can resume when it is connected,
+  supported, loaded, and no longer buffering. The host does not need the stricter
+  alignment check. The service reports this permitted recovery state as `Ready`,
+  so the interface matches the action that the host can take. Requiring strict
+  alignment caused a deadlock where only repeated room resets recovered playback.
 - If the host stops making progress for longer than the fallback grace period
   (`WATCH_PARTY_HOST_STALL_GRACE_MS`, 500 ms), the room pauses at the host's own
   position — the one it has data for — and says so. Turn it off per room with

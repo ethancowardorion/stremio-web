@@ -13,10 +13,15 @@ must independently have lawful access to it.
 - One process, all state in memory, every room ephemeral.
 - One runtime dependency (`ws`). Envelope validation, rate limiting, metrics and
   the Prometheus exposition format are implemented locally rather than pulled in.
-- Only the host mutates playback. Guests are rejected at the protocol layer, not
-  merely hidden in the interface.
+- Only the host changes media or its source. The client grants play/pause, seek,
+  and playback rate to guests as one playback-control setting.
+- Completed media moves the room to an idle state. The room stays open while the
+  host selects the next item.
 - Time is injectable throughout, so every test is deterministic and no test
   sleeps on a real clock.
+- Guest clients confirm buffering with timeline drift. The service detects host
+  stalls from measured playback progress. A stale player buffering flag alone
+  cannot block the host.
 
 Rooms are deliberately not persisted. They are short-lived, and silently
 restoring a stale room after a restart is worse than ending it. If restart
@@ -24,6 +29,12 @@ survival becomes a requirement, SQLite is the first adapter to add: persist the
 latest room snapshot plus a bounded authoritative-event ring, then prove that
 reconstruction preserves the sequence and idempotency invariants covered in
 `tests/synchronization.test.ts`.
+
+The maintenance sweep runs every 15 seconds by default. It removes disconnected
+sessions after their resume window, removes their participant records, and ends
+a room if the host does not return. It also removes idle and absolute-TTL rooms.
+An explicit guest departure removes the participant immediately. The host can
+also remove a participant before the resume window ends.
 
 ## Layout
 
